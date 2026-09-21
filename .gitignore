@@ -53,3 +53,4 @@ private-uploads/
 .qa/
 !.env.example
 *.tsbuildinfo
+/agent/

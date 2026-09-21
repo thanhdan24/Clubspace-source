@@ -134,6 +134,14 @@ function Brand() {
     </div>
   );
 }
+const roleInfo: Record<string, { label: string; icon: string; desc: string }> = {
+  LEADER: { label: "Chủ nhiệm CLB", icon: "👑", desc: "Toàn quyền điều hành CLB" },
+  OFFICER: { label: "Cán bộ / BTC", icon: "📋", desc: "Tổ chức sự kiện & điểm danh" },
+  TREASURER: { label: "Thủ quỹ", icon: "💰", desc: "Quản lý quỹ & sổ thu chi" },
+  MEMBER: { label: "Hội viên CLB", icon: "🎒", desc: "Đăng ký tham gia sinh hoạt" },
+  ADMIN: { label: "Quản trị viên", icon: "🛡️", desc: "Quản trị toàn trường" },
+};
+
 function Login({ onLogin, demo }: any) {
   const [username, setUsername] = useState(""),
     [password, setPassword] = useState(""),
@@ -160,54 +168,53 @@ function Login({ onLogin, demo }: any) {
       <div className="login-story">
         <div className="login-story-header">
           <Brand />
-          <span className="platform-tag">NỀN TẢNG CLB SINH VIÊN</span>
+          <span className="platform-tag">CỔNG THÔNG TIN CLB SINH VIÊN</span>
         </div>
         <div className="login-story-content">
-          <span className="overline">KHÔNG GIAN CÂU LẠC BỘ HIỆN ĐẠI</span>
           <h1>
-            Cùng nhau.
+            Không gian sinh hoạt
             <br />
-            Làm nên
-            <br />
-            <em>điều ý nghĩa.</em>
+            của <em>Câu lạc bộ Sinh viên</em>
           </h1>
           <p>
-            Số hóa toàn diện quản lý thành viên, vòng đời sự kiện và tài chính minh bạch cho các câu lạc bộ sinh viên.
+            Nơi hội tụ các câu lạc bộ học thuật, nghệ thuật, thể thao và tình nguyện.
+            Cùng nhau tổ chức hoạt động, gắn kết hội viên và lưu giữ những kỷ niệm
+            thanh xuân rực rỡ.
           </p>
 
           <div className="login-highlights">
             <div className="highlight-card">
               <span className="highlight-icon green">
-                <Users size={18} />
+                <Users size={19} />
               </span>
               <div>
-                <strong>Hồ sơ & Phân quyền</strong>
-                <small>5 vai trò RBAC chặt chẽ</small>
+                <strong>Sinh hoạt & Gắn kết Hội viên</strong>
+                <small>Họp mặt định kỳ, sinh hoạt chuyên môn, dã ngoại và gắn kết thành viên</small>
               </div>
             </div>
             <div className="highlight-card">
               <span className="highlight-icon blue">
-                <CalendarDays size={18} />
+                <CalendarDays size={19} />
               </span>
               <div>
-                <strong>Vòng đời Sự kiện</strong>
-                <small>Đăng ký, duyệt & điểm danh</small>
+                <strong>Sự kiện, Workshop & Hoạt động</strong>
+                <small>Đăng ký tham gia, điểm danh hoạt động và cập nhật thông báo mới</small>
               </div>
             </div>
             <div className="highlight-card">
               <span className="highlight-icon amber">
-                <ShieldCheck size={18} />
+                <Wallet size={19} />
               </span>
               <div>
-                <strong>Tài chính Minh bạch</strong>
-                <small>Phê duyệt 2 lớp & Audit log</small>
+                <strong>Thu chi & Quỹ sinh hoạt rõ ràng</strong>
+                <small>Quản lý đóng quỹ thành viên, công khai minh bạch mọi chi phí hoạt động</small>
               </div>
             </div>
           </div>
         </div>
         <div className="login-story-footer">
-          <span>Clubspace · Nhóm 11 PTTKHTPM</span>
-          <span>Bảo toàn lịch sử · An toàn dữ liệu</span>
+          <span>Clubspace · Đồng hành cùng hoạt động sinh viên</span>
+          <span>Năng động · Gắn kết · Minh bạch</span>
         </div>
       </div>
       <main className="login-main">
@@ -221,8 +228,8 @@ function Login({ onLogin, demo }: any) {
                 <LockKeyhole size={22} />
               </span>
               <div>
-                <h2>Chào mừng trở lại</h2>
-                <p>Đăng nhập để vào không gian quản lý câu lạc bộ của bạn.</p>
+                <h2>Đăng nhập</h2>
+                <p>Nhập thông tin tài khoản để vào không gian sinh hoạt của bạn.</p>
               </div>
             </div>
             <form
@@ -242,7 +249,7 @@ function Login({ onLogin, demo }: any) {
                     required
                     maxLength={50}
                     autoComplete="username"
-                    placeholder="Nhập tên đăng nhập"
+                    placeholder="Nhập tên đăng nhập của bạn"
                   />
                 </div>
               </div>
@@ -277,13 +284,13 @@ function Login({ onLogin, demo }: any) {
               )}
               <Button type="submit" className="login-submit" disabled={!!busy}>
                 {busy === "login" ? <Loader2 className="animate-spin" /> : null}
-                Đăng nhập vào hệ thống <ArrowRight size={17} />
+                Đăng nhập <ArrowRight size={17} />
               </Button>
             </form>
             {demo && (
               <div className="demo-login">
-                <div className="divider-label">Khám phá nhanh theo vai trò</div>
-                <p>Chọn tài khoản để thử chức năng tương ứng:</p>
+                <div className="divider-label">Tài khoản trải nghiệm nhanh</div>
+                <p>Bấm chọn vai trò để thử giao diện tương ứng:</p>
                 <div className="demo-roles">
                   {["LEADER", "OFFICER", "TREASURER", "MEMBER", "ADMIN"].map(
                     (role) => (
@@ -293,11 +300,12 @@ function Login({ onLogin, demo }: any) {
                         variant="outline"
                         className={"demo-chip demo-" + role.toLowerCase()}
                         onClick={() => signIn(role)}
+                        title={roleInfo[role]?.desc}
                       >
                         {busy === role ? (
                           <Loader2 className="animate-spin" size={13} />
                         ) : null}
-                        {labels[role]}
+                        <span>{roleInfo[role]?.icon} {roleInfo[role]?.label}</span>
                       </Button>
                     ),
                   )}
@@ -305,7 +313,7 @@ function Login({ onLogin, demo }: any) {
               </div>
             )}
             <p className="login-help">
-              Chưa có tài khoản? Liên hệ quản trị viên của câu lạc bộ.
+              Chưa có tài khoản? Liên hệ Ban chủ nhiệm câu lạc bộ của bạn để được cấp quyền.
             </p>
           </div>
         </div>

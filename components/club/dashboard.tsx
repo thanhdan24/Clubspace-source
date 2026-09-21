@@ -154,7 +154,7 @@ export default function Dashboard() {
           </Button>
         )}
       </PageTitle>
-      <LoadState {...r}>
+      <LoadState {...r} variant="dashboard">
         {d && (
           <>
             <div className="club-banner">

@@ -172,7 +172,11 @@ export async function context(
                 )?.club_id
               : 0),
         );
-  if (club)
+  const isPublicEventAccess =
+    /^\/api\/events\/\d+(?:\/registration)?\/?$/.test(
+      new URL(req.url).pathname,
+    );
+  if (club && !isPublicEventAccess)
     fail(
       admin || grants.some((r) => Number(r.club_id) === club),
       "Bạn không có quyền truy cập câu lạc bộ này.",
@@ -182,7 +186,7 @@ export async function context(
     /^\/api\/(club|clubs|profile(?:\/password)?|accounts(?:\/\d+)?|roles|role-catalog)\/?$/.test(
       new URL(req.url).pathname,
     );
-  if (club && req.method !== "GET" && !accountOrSettings) {
+  if (club && req.method !== "GET" && !accountOrSettings && !isPublicEventAccess) {
     const r = await one(db, "SELECT club_status FROM CLUBS WHERE club_id=?", [
       club,
     ]);
@@ -192,5 +196,6 @@ export async function context(
     .filter((r) => Number(r.club_id) === club)
     .map((r) => r.role_code);
   if (admin) roles.push("ADMIN");
+  if (!roles.length && isPublicEventAccess) roles.push("MEMBER");
   return { db, user: user!, club, roles, admin, env, request: req };
 }

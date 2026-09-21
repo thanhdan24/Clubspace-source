@@ -4,6 +4,7 @@ import {
   one,
   stmt,
   now,
+  day,
   fail,
   permit,
   has,
@@ -260,9 +261,47 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
   }
   if (sub === "registration" && method === "POST") {
     permit(c, "MEMBER");
-    const m = await member(c);
     fail(
-      m.member_status === "ACTIVE",
+      c.user.account_status === "ACTIVE",
+      "Tài khoản của bạn không trong trạng thái hoạt động.",
+      403,
+    );
+    let m = await one(
+      c.db,
+      "SELECT * FROM CLUB_MEMBERS WHERE club_id=? AND user_id=?",
+      [c.club, c.user.user_id],
+    );
+    if (!m) {
+      const code = c.user.student_code || `GUEST_${c.user.user_id}`;
+      const existing = await one(
+        c.db,
+        "SELECT club_member_id FROM CLUB_MEMBERS WHERE club_id=? AND member_code=?",
+        [c.club, code],
+      );
+      const finalCode = existing ? `${code}_${c.user.user_id}` : code;
+      const id = await insert(
+        c,
+        "CLUB_MEMBERS",
+        {
+          club_id: c.club,
+          user_id: c.user.user_id,
+          member_code: finalCode,
+          join_date: day(),
+          member_status: "ACTIVE",
+          department_name: "Khách tham gia",
+          position_name: "Người tham dự",
+          created_at: now(),
+        },
+        "REGISTER_EVENT_GUEST",
+      );
+      m = await one(
+        c.db,
+        "SELECT * FROM CLUB_MEMBERS WHERE club_member_id=?",
+        [id],
+      );
+    }
+    fail(
+      m && m.member_status === "ACTIVE",
       "Chỉ thành viên đang sinh hoạt được đăng ký.",
       403,
     );
@@ -272,7 +311,7 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     const old = await one(
       c.db,
       "SELECT * FROM EVENT_REGISTRATIONS WHERE event_id=? AND club_member_id=?",
-      [event.event_id, m.club_member_id],
+      [event.event_id, m!.club_member_id],
     );
     if (
       b.action === "register" &&
@@ -327,7 +366,7 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
         {
           ...fields,
           event_id: event.event_id,
-          club_member_id: m.club_member_id,
+          club_member_id: m!.club_member_id,
         },
         "REGISTER_EVENT",
       );
