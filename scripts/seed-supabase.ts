@@ -3,7 +3,7 @@ import path from "node:path";
 import bcrypt from "bcryptjs";
 import { prisma } from "../server/prisma";
 
-const VIEWS_SQL = `
+const VIEW_FUND_SUMMARY = `
 CREATE OR REPLACE VIEW "vw_club_fund_summary" AS
 SELECT
     c.club_id,
@@ -36,7 +36,9 @@ GROUP BY
     c.club_id,
     c.club_code,
     c.club_name;
+`;
 
+const VIEW_EVENT_STATS = `
 CREATE OR REPLACE VIEW "vw_event_statistics" AS
 WITH RegAgg AS
 (
@@ -111,7 +113,8 @@ async function main() {
   await prisma.$connect();
 
   console.log("[Supabase Seed] Tạo các Views thống kê...");
-  await prisma.$executeRawUnsafe(VIEWS_SQL);
+  await prisma.$executeRawUnsafe(VIEW_FUND_SUMMARY);
+  await prisma.$executeRawUnsafe(VIEW_EVENT_STATS);
 
   const userCount = await prisma.user.count();
   if (userCount > 0) {
@@ -152,7 +155,17 @@ async function main() {
         const keys = Object.keys(row);
         const columns = keys.map((k) => `"${k}"`).join(", ");
         const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
-        const values = keys.map((k) => row[k]);
+        const values = keys.map((k) => {
+          const v = row[k];
+          if (
+            typeof v === "string" &&
+            /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?$/.test(v)
+          ) {
+            const d = new Date(v.includes("T") ? v : v + "T00:00:00");
+            if (!isNaN(d.getTime())) return d;
+          }
+          return v;
+        });
 
         const sql = `INSERT INTO "${tableName}" (${columns}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`;
         await prisma.$executeRawUnsafe(sql, ...values);

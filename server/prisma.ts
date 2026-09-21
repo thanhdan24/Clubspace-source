@@ -38,6 +38,17 @@ export function convertSqlToPostgres(source: string, parameters: unknown[]) {
   return { text, parameters };
 }
 
+function normalizeValue(v: unknown): unknown {
+  if (
+    typeof v === "string" &&
+    /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?$/.test(v)
+  ) {
+    const d = new Date(v.includes("T") ? v : v + "T00:00:00");
+    if (!isNaN(d.getTime())) return d;
+  }
+  return v;
+}
+
 function serializeRow(row: Record<string, unknown>): Row {
   return Object.fromEntries(
     Object.entries(row).map(([k, v]) => {
@@ -73,10 +84,12 @@ export class PrismaStatement implements Statement {
       text += " RETURNING *";
     }
 
+    const normalizedValues = this.values.map(normalizeValue);
+
     if (isSelect || isInsert) {
       const rawRows = (await this.client.$queryRawUnsafe(
         text,
-        ...this.values,
+        ...normalizedValues,
       )) as Record<string, unknown>[];
       const rows = rawRows.map(serializeRow);
 
@@ -110,7 +123,10 @@ export class PrismaStatement implements Statement {
         },
       };
     } else {
-      const changes = await this.client.$executeRawUnsafe(text, ...this.values);
+      const changes = await this.client.$executeRawUnsafe(
+        text,
+        ...normalizedValues,
+      );
       return {
         results: [],
         success: true,
