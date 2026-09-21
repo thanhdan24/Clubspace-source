@@ -1,4 +1,4 @@
-﻿CREATE TABLE `APP_SETUP` (
+CREATE TABLE `APP_SETUP` (
 	`setup_id` integer PRIMARY KEY NOT NULL,
 	`completed_at` text NOT NULL
 );
@@ -99,6 +99,7 @@ CREATE TABLE `EVENTS` (
 	`capacity` integer,
 	`approval_required` integer NOT NULL,
 	`event_status` text NOT NULL,
+	`scope` text DEFAULT 'PUBLIC' NOT NULL,
 	`attendance_locked` integer NOT NULL,
 	`created_at` text NOT NULL,
 	`updated_at` text,

@@ -808,3 +808,144 @@ test("Evidence upload validates content and restricts download to club staff", a
   assert.match(proof.headers.get("content-disposition")!, /^attachment/);
   assert.equal(await proof.text(), "%PDF-1.4 test");
 });
+test("Event scope restricts registration: INTERNAL allows only club members, PUBLIC allows cross-club users", async () => {
+  const internalEvent = {
+    event_name: "Sự kiện nội bộ",
+    event_type: "MEETING",
+    scope: "INTERNAL",
+    location: "Phòng họp CLB",
+    start_at: future(10),
+    end_at: future(10, "11:00"),
+    registration_deadline: future(9),
+    capacity: 10,
+    approval_required: 0,
+  };
+  const createRes = await call("OFFICER", "events", "POST", internalEvent, 1);
+  assert.equal(createRes.status, 201);
+  const intId = createRes.data.event_id;
+
+  assert.equal(
+    (
+      await call(
+        "LEADER",
+        `events/${intId}/action`,
+        "POST",
+        { action: "publish" },
+        1,
+      )
+    ).status,
+    200,
+  );
+
+  assert.equal(
+    (
+      await call(
+        "MEMBER",
+        `events/${intId}/registration`,
+        "POST",
+        { action: "register" },
+        1,
+      )
+    ).status,
+    201,
+  );
+
+  const externalUser = {
+    student_code: "EXT_99999",
+    username: "ext_user",
+    password: "Password@123",
+    full_name: "External Student",
+    email: "ext@student.ptit.edu.vn",
+  };
+  const regUser = await call("ADMIN", "accounts", "POST", externalUser);
+  assert.equal(regUser.status, 201);
+
+  const loginRes = await call("", "auth/login", "POST", {
+    username: externalUser.username,
+    password: externalUser.password,
+  });
+  assert.equal(loginRes.status, 200);
+  const extCookie = loginRes.cookie!.split(";")[0];
+
+  const extCall = async (
+    path: string,
+    method = "GET",
+    data?: any,
+    club = 1,
+  ) => {
+    const req = new Request(
+      `http://test.local/api/${path}${path.includes("?") ? "&" : "?"}club=${club}`,
+      {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: extCookie,
+        },
+        body: data === undefined ? undefined : JSON.stringify(data),
+      },
+    );
+    const res = await handleApi(req, db, env);
+    return { status: res.status, data: await res.json().catch(() => null) };
+  };
+
+  const regInternal = await extCall(
+    `events/${intId}/registration`,
+    "POST",
+    { action: "register" },
+    1,
+  );
+  assert.equal(regInternal.status, 403);
+  assert.match(regInternal.data.error, /nội bộ/);
+
+  const publicEvent = {
+    event_name: "Sự kiện toàn trường",
+    event_type: "WORKSHOP",
+    scope: "PUBLIC",
+    location: "Hội trường A",
+    start_at: future(12),
+    end_at: future(12, "11:00"),
+    registration_deadline: future(11),
+    capacity: 50,
+    approval_required: 0,
+  };
+  const pubRes = await call("OFFICER", "events", "POST", publicEvent, 1);
+  assert.equal(pubRes.status, 201);
+  const pubId = pubRes.data.event_id;
+
+  assert.equal(
+    (
+      await call(
+        "LEADER",
+        `events/${pubId}/action`,
+        "POST",
+        { action: "publish" },
+        1,
+      )
+    ).status,
+    200,
+  );
+
+  const regPublic = await extCall(
+    `events/${pubId}/registration`,
+    "POST",
+    { action: "register" },
+    1,
+  );
+  assert.equal(regPublic.status, 201);
+  assert.equal(regPublic.data.registration_status, "CONFIRMED");
+
+  const guestMember = sql(
+    "SELECT * FROM CLUB_MEMBERS WHERE club_id=1 AND user_id=?",
+    regUser.data.user_id,
+  );
+  assert.equal(guestMember.department_name, "Khách tham gia");
+
+  const regInternalAgain = await extCall(
+    `events/${intId}/registration`,
+    "POST",
+    { action: "register" },
+    1,
+  );
+  assert.equal(regInternalAgain.status, 403);
+  assert.match(regInternalAgain.data.error, /nội bộ/);
+});

@@ -100,6 +100,8 @@ export const labels: Record<string, string> = {
   COMPETITION: "Cuộc thi",
   ACADEMIC: "Học thuật",
   VOLUNTEER: "Tình nguyện",
+  INTERNAL: "Nội bộ CLB",
+  PUBLIC: "Toàn trường",
 };
 export const opts = (values: string[]) =>
   values.map((value) => ({ value, label: labels[value] || value }));

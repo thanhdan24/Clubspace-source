@@ -200,7 +200,7 @@ export function Members() {
       </PageTitle>
       <section className="panel">
         <Filters {...f} statuses={memberStatuses} />
-        <LoadState {...r}>
+        <LoadState {...r} variant="table">
           <DataTable
             data={r.data}
             page={f.page}
@@ -299,7 +299,7 @@ export function Accounts() {
       </PageTitle>
       <section className="panel">
         <Filters {...f} statuses={["ACTIVE", "LOCKED", "INACTIVE"]} />
-        <LoadState {...r}>
+        <LoadState {...r} variant="table">
           <DataTable
             data={r.data}
             page={f.page}
@@ -471,7 +471,7 @@ export function Roles() {
           Phân công vai trò
         </Button>
       </PageTitle>
-      <LoadState {...r}>
+      <LoadState {...r} variant="cards">
         <div className="role-cards">
           {r.data?.roles.map((role: Row) => (
             <div className="panel role-card" key={role.role_id}>
@@ -627,7 +627,7 @@ export function Clubs() {
           Tạo câu lạc bộ
         </Button>
       </PageTitle>
-      <LoadState {...r}>
+      <LoadState {...r} variant="cards">
         <div className="club-cards">
           {r.data?.rows.map((c: Row) => (
             <section className="panel club-card" key={c.club_id}>
@@ -707,7 +707,7 @@ export function ClubSettings() {
         title="Thông tin câu lạc bộ"
         description="Tên gọi, giới thiệu và trạng thái hoạt động."
       />
-      <LoadState {...r}>
+      <LoadState {...r} variant="detail">
         {r.data && (
           <section className="panel settings-panel">
             <span className="club-card-icon">
@@ -784,7 +784,7 @@ export function Profile() {
         title="Hồ sơ của tôi"
         description="Thông tin liên hệ và bảo mật tài khoản."
       />
-      <LoadState {...r}>
+      <LoadState {...r} variant="detail">
         {r.data && (
           <div className="profile-layout">
             <section className="panel profile-card">
@@ -908,7 +908,7 @@ export function Audit() {
       />
       <section className="panel">
         <Filters q={f.q} setQ={f.setQ} />
-        <LoadState {...r}>
+        <LoadState {...r} variant="table">
           <DataTable
             data={r.data}
             page={f.page}

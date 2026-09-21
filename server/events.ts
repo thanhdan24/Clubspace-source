@@ -27,6 +27,7 @@ import {
 const eventForm = z.object({
   event_name: str(200),
   event_type: str(100),
+  scope: z.enum(["INTERNAL", "PUBLIC"]).default("PUBLIC"),
   location: str(255),
   start_at: datetime,
   end_at: datetime,
@@ -272,6 +273,11 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
       [c.club, c.user.user_id],
     );
     if (!m) {
+      fail(
+        event.scope !== "INTERNAL",
+        "Sự kiện này là sự kiện nội bộ, chỉ dành cho thành viên của câu lạc bộ.",
+        403,
+      );
       const code = c.user.student_code || `GUEST_${c.user.user_id}`;
       const existing = await one(
         c.db,
@@ -298,6 +304,13 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
         c.db,
         "SELECT * FROM CLUB_MEMBERS WHERE club_member_id=?",
         [id],
+      );
+    }
+    if (event.scope === "INTERNAL") {
+      fail(
+        m && m.department_name !== "Khách tham gia",
+        "Sự kiện này là sự kiện nội bộ, chỉ dành cho thành viên của câu lạc bộ.",
+        403,
       );
     }
     fail(

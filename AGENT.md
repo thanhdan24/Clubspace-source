@@ -70,7 +70,9 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc n
 - **`BR-02`**: Mã sinh viên `student_code` (nếu có) là duy nhất trên toàn hệ thống (`UX_USERS_student_code`).
 - **`BR-03`**: Mỗi người dùng (`user_id`) chỉ có duy nhất một hồ sơ thành viên (`club_member_id`) trong cùng một CLB (`UQ_CLUB_MEMBERS_club_user`).
 - **`BR-04` (Bảo toàn lịch sử):** **Tuyệt đối không xóa cứng** bất kỳ bản ghi nào đã phát sinh dữ liệu (User, Club, Member, Event, Transaction). Mọi hành động "xóa" đều chuyển trạng thái logic (`LOCKED`, `LEFT`, `CANCELLED`).
-- **`BR-05` (Quyền tham gia sự kiện toàn trường):** Bất kỳ người dùng nào có tài khoản `account_status = 'ACTIVE'` đều được phép đăng ký tham gia các sự kiện đang `OPEN` của bất kỳ CLB nào trong trường (kể cả thành viên, cán bộ, hoặc Chủ nhiệm của CLB khác). Khi người dùng ngoài CLB đăng ký sự kiện, hệ thống tự động khởi tạo hồ sơ thành viên vãng lai (`CLUB_MEMBERS` với vai trò khách tham gia) để cấp mã và bảo đảm dữ liệu phục vụ điểm danh, xét duyệt và thống kê.
+- **`BR-05` (Quyền tham gia và phạm vi sự kiện):** Sự kiện có 2 phạm vi (`scope`): `PUBLIC` (Toàn trường) và `INTERNAL` (Nội bộ CLB).
+  - Đối với sự kiện **`PUBLIC`**: Bất kỳ người dùng nào có tài khoản `account_status = 'ACTIVE'` đều được phép đăng ký tham gia các sự kiện đang `OPEN` của bất kỳ CLB nào trong trường (kể cả thành viên, cán bộ, hoặc Chủ nhiệm của CLB khác). Khi người dùng ngoài CLB đăng ký sự kiện, hệ thống tự động khởi tạo hồ sơ người tham dự (`CLUB_MEMBERS` với `department_name = 'Khách tham gia'`, `position_name = 'Người tham dự'`) để cấp mã và bảo đảm dữ liệu phục vụ điểm danh, xét duyệt và thống kê.
+  - Đối với sự kiện **`INTERNAL`**: Chỉ những thành viên chính thức đang sinh hoạt (`member_status = 'ACTIVE'`) thuộc chính câu lạc bộ tổ chức mới được phép đăng ký; người dùng ngoài CLB hoặc tài khoản khách tham gia sẽ bị từ chối truy cập/đăng ký (HTTP 403).
 - **`BR-06`**: Mỗi thành viên chỉ có tối đa 1 bản ghi đăng ký trong một sự kiện (`UQ_EVENT_REGISTRATIONS_event_member`).
 - **`BR-07`**: Hạn chót đăng ký phải trước hoặc bằng thời điểm bắt đầu sự kiện: `registration_deadline <= start_at`.
 - **`BR-08`**: Thời điểm kết thúc sự kiện phải lớn hơn thời điểm bắt đầu: `end_at > start_at`.
@@ -84,7 +86,7 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc n
 - **`BR-16` (Kiểm tra truy vết):** Mọi thao tác quan trọng (thay đổi vai trò, đổi trạng thái thành viên, duyệt/hủy chi tiêu, sửa điểm danh khi đã khóa) bắt buộc phải ghi log vào `AUDIT_LOGS`.
 - **`BR-17` (Kiểm tra đa điều kiện):** Mọi thao tác nghiệp vụ máy chủ phải kiểm tra tính hợp lệ của tài khoản (`ACTIVE`), CLB (`ACTIVE`), vai trò và đúng phạm vi `club_id`.
 - **`BR-18` (Cấm tự duyệt chi):** Người tạo khoản chi **không được tự phê duyệt**, kể cả khi tài khoản đó kiêm nhiệm cả hai vai trò `LEADER` và `TREASURER`.
-- **`BR-19` (Toàn vẹn phạm vi CLB):** Tất cả thực thể liên đới trong một tác vụ nội bộ (giao dịch tài chính, hạng mục thu chi, phân quyền nội bộ) **phải thuộc cùng một `club_id`**. Đối với sự kiện công khai (`OPEN`), người dùng ngoài CLB được chuẩn hóa qua hồ sơ thành viên tham dự tương ứng tại CLB tổ chức để duy trì toàn vẹn dữ liệu.
+- **`BR-19` (Toàn vẹn phạm vi CLB):** Tất cả thực thể liên đới trong một tác vụ nội bộ (giao dịch tài chính, hạng mục thu chi, phân quyền nội bộ, sự kiện nội bộ `scope = 'INTERNAL'`) **phải thuộc cùng một `club_id`**. Đối với sự kiện công khai (`scope = 'PUBLIC'`), người dùng ngoài CLB được chuẩn hóa qua hồ sơ thành viên tham dự tương ứng tại CLB tổ chức để duy trì toàn vẹn dữ liệu.
 - **`BR-20` (Xử lý toàn vẹn danh sách):** Trước khi chốt danh sách tham dự sự kiện (`CLOSED`), phải xử lý hết toàn bộ đăng ký `PENDING`. Khi khóa điểm danh (`attendance_locked = 1`), tất cả thành viên `CONFIRMED` phải có kết quả điểm danh cụ thể.
 - **`BR-21` (Bảo vệ Leader cuối cùng):** Không được gỡ vai trò hoặc vô hiệu hóa tài khoản của `LEADER` hoạt động cuối cùng trong CLB nếu chưa bổ nhiệm người thay thế.
 - **`BR-22` (Ghi sổ Idempotent):** Giao dịch tài chính chỉ được chuyển sang `POSTED` đúng một lần. Kiểm tra trạng thái và số dư quỹ phải diễn ra trong cùng transaction cơ sở dữ liệu.
@@ -148,14 +150,16 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc n
 - **Ràng buộc:** Mọi thay đổi trạng thái phải ghi vào `MEMBER_STATUS_HISTORY` (`BR-16`).
 
 ### UC-04: Tạo, Công bố và Cập nhật Sự kiện
-- **Actor:** `OFFICER`, `LEADER` (soạn thảo bản nháp, cập nhật thông tin); **Riêng thao tác công bố sự kiện (`DRAFT` -> `OPEN`): Chỉ `LEADER` mới có quyền thực hiện.**
-- **Mô tả:** Cán bộ/Chủ nhiệm tạo sự kiện (`DRAFT`), cập nhật thông tin sự kiện. Sau khi rà soát và phê duyệt nội dung, **chỉ Chủ nhiệm (`LEADER`) mới có thẩm quyền chính thức công bố (`OPEN`) sự kiện** ra toàn câu lạc bộ để mở cổng đăng ký. Cập nhật thông tin hoặc hủy sự kiện (`CANCELLED`).
+- **Actor:** `OFFICER`, `LEADER` (soạn thảo bản nháp, cập nhật thông tin, thiết lập phạm vi `scope`: `PUBLIC` hoặc `INTERNAL`); **Riêng thao tác công bố sự kiện (`DRAFT` -> `OPEN`): Chỉ `LEADER` mới có quyền thực hiện.**
+- **Mô tả:** Cán bộ/Chủ nhiệm tạo sự kiện (`DRAFT`), thiết lập phạm vi (`scope`: `PUBLIC` - Toàn trường hoặc `INTERNAL` - Nội bộ CLB), cập nhật thông tin sự kiện. Sau khi rà soát và phê duyệt nội dung, **chỉ Chủ nhiệm (`LEADER`) mới có thẩm quyền chính thức công bố (`OPEN`) sự kiện** để mở cổng đăng ký. Cập nhật thông tin hoặc hủy sự kiện (`CANCELLED`).
 - **Ràng buộc:** `end_at > start_at`, `registration_deadline <= start_at` (`BR-07`, `BR-08`). **Chỉ `LEADER` được phép công bố sự kiện (`DRAFT` -> `OPEN`)**. Sự kiện đã diễn ra chỉ `LEADER` mới được hủy có lý do.
 
 ### UC-05: Đăng ký hoặc Hủy Đăng ký Sự kiện
-- **Actor:** Bất kỳ người dùng nào có tài khoản `account_status = 'ACTIVE'` (bao gồm thành viên CLB, sinh viên tự do, hoặc Cán bộ/Chủ nhiệm của CLB khác).
-- **Mô tả:** Đăng ký tham gia sự kiện đang `OPEN` của bất kỳ CLB nào trong trường. Nếu người dùng chưa có hồ sơ trong CLB tổ chức sự kiện, hệ thống tự động chuẩn hóa hồ sơ người tham dự (`department_name = 'Khách tham gia'`, `position_name = 'Người tham dự'`). Nếu `approval_required = false` -> `CONFIRMED`; nếu `true` -> `PENDING`. Hủy đăng ký trước hạn -> `CANCELLED`.
-- **Ràng buộc:** Kiểm tra hạn đăng ký, sức chứa `capacity`, tài khoản phải `ACTIVE` (`BR-05`, `BR-06`, `BR-07`, `BR-09`). Đăng ký `CANCELLED` trước đó được phép đăng ký lại khi còn hạn.
+- **Actor:** 
+  - Với sự kiện `scope = 'PUBLIC'`: Bất kỳ người dùng nào có tài khoản `account_status = 'ACTIVE'` (bao gồm thành viên CLB, sinh viên tự do, hoặc Cán bộ/Chủ nhiệm của CLB khác).
+  - Với sự kiện `scope = 'INTERNAL'`: Chỉ thành viên đang hoạt động (`member_status = 'ACTIVE'`) thuộc CLB tổ chức.
+- **Mô tả:** Đăng ký tham gia sự kiện đang `OPEN`. Đối với sự kiện công khai (`PUBLIC`), nếu người dùng chưa có hồ sơ trong CLB tổ chức sự kiện, hệ thống tự động chuẩn hóa hồ sơ người tham dự (`department_name = 'Khách tham gia'`, `position_name = 'Người tham dự'`). Nếu `approval_required = false` -> `CONFIRMED`; nếu `true` -> `PENDING`. Hủy đăng ký trước hạn -> `CANCELLED`.
+- **Ràng buộc:** Kiểm tra phạm vi `scope` (`BR-05`), hạn đăng ký (`BR-07`), sức chứa `capacity` (`BR-09`), tài khoản phải `ACTIVE`. Đăng ký `CANCELLED` trước đó được phép đăng ký lại khi còn hạn.
 
 ### UC-06: Duyệt và Chốt Danh sách Tham dự
 - **Actor:** `OFFICER`, `LEADER`.
@@ -197,7 +201,7 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc n
 4. `UserRole`: Bảng gán vai trò (`user_role_id`, `user_id`, `role_id`, `club_id`, `active_flag`).
 5. `ClubMember`: Hồ sơ thành viên (`club_member_id`, `club_id`, `user_id`, `member_code`, `member_status`, `department_name`, `position_name`, v.v.).
 6. `MemberStatusHistory`: Lịch sử đổi trạng thái (`history_id`, `club_member_id`, `old_status`, `new_status`, `reason`, `changed_by`).
-7. `Event`: Sự kiện (`event_id`, `club_id`, `event_name`, `start_at`, `end_at`, `registration_deadline`, `capacity`, `event_status`, `attendance_locked`, v.v.).
+7. `Event`: Sự kiện (`event_id`, `club_id`, `event_name`, `event_type`, `scope` ['PUBLIC'/'INTERNAL'], `start_at`, `end_at`, `registration_deadline`, `capacity`, `approval_required`, `event_status`, `attendance_locked`, v.v.).
 8. `EventRegistration`: Đăng ký sự kiện (`registration_id`, `event_id`, `club_member_id`, `registration_status`, `reviewed_by`, `review_reason`, v.v.).
 9. `Attendance`: Điểm danh (`attendance_id`, `event_id`, `club_member_id`, `registration_id`, `attendance_status`, `check_in_at`, `recorded_by`).
 10. `FinanceCategory`: Danh mục tài chính (`category_id`, `club_id`, `category_type` ['INCOME'/'EXPENSE'], `category_name`, `active_flag`).

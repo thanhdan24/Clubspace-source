@@ -80,6 +80,17 @@ function EventEditor({ event = {}, onClose, onSaved }: any) {
         "VOLUNTEER",
       ]),
     },
+    {
+      name: "scope",
+      label: "Phạm vi sự kiện",
+      type: "select",
+      options: [
+        { value: "PUBLIC", label: "Toàn trường (Công khai)" },
+        { value: "INTERNAL", label: "Nội bộ (Chỉ thành viên CLB)" },
+      ],
+      required: true,
+      help: "Sự kiện toàn trường cho phép tất cả sinh viên đăng ký. Sự kiện nội bộ chỉ mở cho thành viên CLB.",
+    },
     { name: "location", label: "Địa điểm", required: true, maxLength: 255 },
     {
       name: "start_at",
@@ -122,6 +133,7 @@ function EventEditor({ event = {}, onClose, onSaved }: any) {
       fields={fields}
       initial={{
         event_type: "WORKSHOP",
+        scope: "PUBLIC",
         start_at: start + "T08:00",
         end_at: start + "T11:00",
         registration_deadline: start + "T07:00",
@@ -209,7 +221,7 @@ export function Events() {
           </Tabs>
         </Filters>
       </section>
-      <LoadState {...r}>
+      <LoadState {...r} variant={view === "list" ? "table" : "events"}>
         {view === "list" ? (
           <section className="panel">
             <DataTable
@@ -244,6 +256,11 @@ export function Events() {
                   key: "confirmed_count",
                   title: "XÁC NHẬN",
                   render: (r) => `${r.confirmed_count} / ${r.capacity || "∞"}`,
+                },
+                {
+                  key: "scope",
+                  title: "PHẠM VI",
+                  render: (r) => <Badge value={r.scope || "PUBLIC"} />,
                 },
                 {
                   key: "event_status",
@@ -290,7 +307,10 @@ export function Events() {
                       />
                     </div>
                     <div className="event-card-content">
-                      <Badge value={e.event_status} />
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <Badge value={e.event_status} />
+                        <Badge value={e.scope || "PUBLIC"} />
+                      </div>
                       <h2>
                         <a href={"#events/" + e.event_id}>{e.event_name}</a>
                       </h2>
@@ -423,7 +443,7 @@ function Roster({ event, attendance = false }: any) {
           Kết quả đã được khóa. Chủ nhiệm có thể mở lại để sửa ngoại lệ.
         </div>
       )}
-      <LoadState {...r}>
+      <LoadState {...r} variant="table">
         <DataTable
           data={r.data}
           page={f.page}
@@ -642,7 +662,7 @@ export function EventDetail({ id }: any) {
         <ArrowLeft size={16} />
         Tất cả sự kiện
       </button>
-      <LoadState {...r}>
+      <LoadState {...r} variant="detail">
         {e && (
           <>
             <PageTitle
@@ -650,6 +670,7 @@ export function EventDetail({ id }: any) {
               title={e.event_name}
               description={e.location}
             >
+              <Badge value={e.scope || "PUBLIC"} />
               <Badge value={e.event_status} />
               {can("OFFICER", "LEADER") &&
                 !["COMPLETED", "CANCELLED"].includes(e.event_status) && (
@@ -710,6 +731,12 @@ export function EventDetail({ id }: any) {
                   <dl className="details-list">
                     {[
                       ["Tên sự kiện", e.event_name],
+                      [
+                        "Phạm vi",
+                        e.scope === "INTERNAL"
+                          ? "Nội bộ (Chỉ thành viên CLB)"
+                          : "Toàn trường (Công khai)",
+                      ],
                       ["Loại hoạt động", labels[e.event_type] || e.event_type],
                       ["Địa điểm", e.location],
                       ["Bắt đầu", dateText(e.start_at, true)],

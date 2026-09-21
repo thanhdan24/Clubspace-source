@@ -139,6 +139,7 @@ model Event {
   capacity              Int?      @map("capacity")
   approval_required     Int       @default(0) @db.SmallInt @map("approval_required")
   event_status          String    @db.VarChar(20) @map("event_status")
+  scope                 String    @default("PUBLIC") @db.VarChar(20) @map("scope")
   attendance_locked     Int       @default(0) @db.SmallInt @map("attendance_locked")
   created_at            DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
   updated_at            DateTime? @db.Timestamp(0) @map("updated_at")

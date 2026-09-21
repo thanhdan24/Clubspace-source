@@ -256,7 +256,7 @@ function TransactionDetail({ row, onClose, onEdit }: any) {
             <SheetDescription>{row.category_name}</SheetDescription>
           </SheetHeader>
           <div className="sheet-body">
-            <LoadState {...r}>
+            <LoadState {...r} variant="detail">
               {t && (
                 <>
                   <div
@@ -612,7 +612,7 @@ export function Finance({ approvals = false }: any) {
             ]}
           />
         </div>
-        <LoadState {...r}>
+        <LoadState {...r} variant="table">
           <DataTable
             data={r.data}
             page={f.page}
@@ -727,7 +727,7 @@ export function Categories() {
         </Button>
       </PageTitle>
       <section className="panel">
-        <LoadState {...r}>
+        <LoadState {...r} variant="table">
           <DataTable
             data={r.data}
             columns={[
@@ -934,7 +934,7 @@ export function Reports() {
           </>
         )}
       </section>
-      <LoadState {...r}>
+      <LoadState {...r} variant="finance">
         {d &&
           (d.personal ? (
             <>

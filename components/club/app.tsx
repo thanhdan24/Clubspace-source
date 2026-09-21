@@ -50,7 +50,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { AppContext, fetchApi, Avatar, labels, SelectBox } from "./shared";
+import { AppContext, fetchApi, Avatar, labels, SelectBox, prefetchResource } from "./shared";
 import Dashboard from "./dashboard";
 import WebTools from "./web-tools";
 import Notifications from "./notifications";
@@ -321,7 +321,19 @@ function Login({ onLogin, demo }: any) {
     </div>
   );
 }
-function Nav({ items, roles, route, navigate }: any) {
+const navPrefetchPaths: Record<string, string> = {
+  dashboard: "dashboard",
+  events: "events?limit=12",
+  members: "members?limit=12",
+  finance: "finance?period=this_month",
+  accounts: "accounts?limit=12",
+  clubs: "clubs?limit=12",
+  roles: "roles",
+  categories: "categories",
+  audit: "audit?limit=15",
+};
+
+function Nav({ items, roles, route, navigate, club }: any) {
   const { setOpenMobile } = useSidebar();
   return (
     <SidebarMenu>
@@ -337,7 +349,15 @@ function Nav({ items, roles, route, navigate }: any) {
               isActive={route.split("/")[0] === n.id}
               className="nav-link"
             >
-              <a href={"#" + n.id} onClick={() => setOpenMobile(false)}>
+              <a
+                href={"#" + n.id}
+                onClick={() => setOpenMobile(false)}
+                onMouseEnter={() => {
+                  if (club && navPrefetchPaths[n.id]) {
+                    prefetchResource(navPrefetchPaths[n.id], club);
+                  }
+                }}
+              >
                 <n.icon size={19} />
                 <span>{n.label}</span>
                 {n.id === "events" && <span className="nav-shortcut">S</span>}
@@ -541,6 +561,7 @@ export default function ClubApp() {
                 roles={roleList}
                 route={routePath}
                 navigate={navigate}
+                club={club}
               />
             </SidebarGroup>
             {management.some((n) => n.roles.some((r) => can(r))) && (
@@ -551,6 +572,7 @@ export default function ClubApp() {
                   roles={roleList}
                   route={routePath}
                   navigate={navigate}
+                  club={club}
                 />
               </SidebarGroup>
             )}

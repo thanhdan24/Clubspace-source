@@ -931,6 +931,24 @@ input[type="datetime-local"] {
 .status-DRAFT .status-dot {
   background: #94a3b8;
 }
+.status-PUBLIC {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+.status-PUBLIC .status-dot {
+  background: #3b82f6;
+  box-shadow: 0 0 6px #3b82f6;
+}
+.status-INTERNAL {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border-color: #ddd6fe;
+}
+.status-INTERNAL .status-dot {
+  background: #8b5cf6;
+  box-shadow: 0 0 6px #8b5cf6;
+}
 .quick-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
