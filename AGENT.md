@@ -42,11 +42,11 @@ Hệ thống có **5 vai trò (Roles)** định danh rõ ràng:
 2. **`LEADER` (Chủ nhiệm / Phó chủ nhiệm CLB):**
    - Quản lý cao nhất trong phạm vi CLB (`club_id` xác định).
    - Phân công vai trò nội bộ CLB (`OFFICER`, `TREASURER`, `MEMBER`, `LEADER`).
-   - Phê duyệt các khoản chi tài chính; xử lý ngoại lệ nghiệp vụ (mở khóa điểm danh, duyệt hủy giao dịch ghi sai).
+   - Phê duyệt và chính thức công bố sự kiện ra toàn câu lạc bộ (`DRAFT` -> `OPEN`); Phê duyệt các khoản chi tài chính; xử lý ngoại lệ nghiệp vụ (mở khóa điểm danh, duyệt hủy giao dịch ghi sai).
    - *Ràng buộc:* Phải luôn bảo đảm còn ít nhất 1 `LEADER` đang `ACTIVE` trong CLB.
 3. **`OFFICER` (Cán bộ phụ trách thành viên & sự kiện):**
    - Quản lý hồ sơ thành viên, cập nhật trạng thái hoạt động trong CLB.
-   - Tạo, công bố, quản lý danh sách đăng ký sự kiện, chốt danh sách và thực hiện điểm danh.
+   - Soạn thảo sự kiện (tạo bản nháp `DRAFT`), quản lý danh sách đăng ký sự kiện, chốt danh sách và thực hiện điểm danh (việc công bố sự kiện `DRAFT` -> `OPEN` thuộc thẩm quyền phê duyệt của `LEADER`).
 4. **`TREASURER` (Thủ quỹ CLB):**
    - Lập phiếu thu, đề xuất chi (`DRAFT`, `PENDING_APPROVAL`), đính kèm chứng từ thanh toán.
    - Thực hiện ghi sổ (`POSTED`) sau khi được duyệt và chi tiền thực tế. Quản lý danh mục thu/chi, theo dõi số dư quỹ.
@@ -105,9 +105,9 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc n
       +---------> [LEFT] (Lưu lý do vào MEMBER_STATUS_HISTORY)
 
 3. Sự kiện (EVENTS):
-   [DRAFT] ----> [OPEN] ----> [CLOSED] ----> [ONGOING] ----> [COMPLETED]
-     |             |            |              |
-     +-------------+------------+--------------+---> [CANCELLED] (Cần lý do)
+   [DRAFT] --(Chỉ LEADER công bố)--> [OPEN] ----> [CLOSED] ----> [ONGOING] ----> [COMPLETED]
+     |                                 |            |              |
+     +---------------------------------+------------+--------------+---> [CANCELLED] (Cần lý do)
 
 4. Đăng ký Sự kiện (EVENT_REGISTRATIONS):
    [PENDING] --------+---> [CONFIRMED]
@@ -148,9 +148,9 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc n
 - **Ràng buộc:** Mọi thay đổi trạng thái phải ghi vào `MEMBER_STATUS_HISTORY` (`BR-16`).
 
 ### UC-04: Tạo, Công bố và Cập nhật Sự kiện
-- **Actor:** `OFFICER`, `LEADER`.
-- **Mô tả:** Tạo sự kiện (`DRAFT`), công bố (`OPEN`), cập nhật thông tin hoặc hủy sự kiện (`CANCELLED`).
-- **Ràng buộc:** `end_at > start_at`, `registration_deadline <= start_at` (`BR-07`, `BR-08`). Sự kiện đã diễn ra chỉ `LEADER` mới được hủy có lý do.
+- **Actor:** `OFFICER`, `LEADER` (soạn thảo bản nháp, cập nhật thông tin); **Riêng thao tác công bố sự kiện (`DRAFT` -> `OPEN`): Chỉ `LEADER` mới có quyền thực hiện.**
+- **Mô tả:** Cán bộ/Chủ nhiệm tạo sự kiện (`DRAFT`), cập nhật thông tin sự kiện. Sau khi rà soát và phê duyệt nội dung, **chỉ Chủ nhiệm (`LEADER`) mới có thẩm quyền chính thức công bố (`OPEN`) sự kiện** ra toàn câu lạc bộ để mở cổng đăng ký. Cập nhật thông tin hoặc hủy sự kiện (`CANCELLED`).
+- **Ràng buộc:** `end_at > start_at`, `registration_deadline <= start_at` (`BR-07`, `BR-08`). **Chỉ `LEADER` được phép công bố sự kiện (`DRAFT` -> `OPEN`)**. Sự kiện đã diễn ra chỉ `LEADER` mới được hủy có lý do.
 
 ### UC-05: Đăng ký hoặc Hủy Đăng ký Sự kiện
 - **Actor:** `MEMBER`.

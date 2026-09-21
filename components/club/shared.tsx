@@ -141,7 +141,10 @@ export const localNow = () =>
   new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 16);
 export function Badge({ value }: { value: string }) {
   return (
-    <span className={"status status-" + value}>{labels[value] || value}</span>
+    <span className={"status status-" + value}>
+      <span className="status-dot" aria-hidden="true" />
+      {labels[value] || value}
+    </span>
   );
 }
 export function Avatar({ name, index = 0 }: { name: string; index?: number }) {
@@ -183,7 +186,8 @@ export function SelectBox({
   );
 }
 export function apiUrl(path: string, club: number) {
-  return "/api/" + path + (path.includes("?") ? "&" : "?") + "club=" + club;
+  const p = path.includes("?") ? "&" : "?";
+  return club > 0 ? "/api/" + path + p + "club=" + club : "/api/" + path;
 }
 export async function fetchApi(path: string, club: number, options: any = {}) {
   const response = await fetch(apiUrl(path, club), {

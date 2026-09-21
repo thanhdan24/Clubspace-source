@@ -156,20 +156,22 @@ export async function context(
   const admin = grants.some(
     (r) => r.role_code === "ADMIN" && r.club_id === null,
   );
-  const requested = new URL(req.url).searchParams.get("club");
-  const club = requested
-    ? Number(requested)
-    : Number(
-        grants.find((r) => r.club_id)?.club_id ||
-          (admin
-            ? (
-                await one(
-                  db,
-                  "SELECT club_id FROM CLUBS ORDER BY club_id LIMIT 1",
-                )
-              )?.club_id
-            : 0),
-      );
+  const rawClub = new URL(req.url).searchParams.get("club");
+  const requested = rawClub ? Number(rawClub) : 0;
+  const club =
+    requested > 0
+      ? requested
+      : Number(
+          grants.find((r) => r.club_id)?.club_id ||
+            (admin
+              ? (
+                  await one(
+                    db,
+                    "SELECT club_id FROM CLUBS ORDER BY club_id LIMIT 1",
+                  )
+                )?.club_id
+              : 0),
+        );
   if (club)
     fail(
       admin || grants.some((r) => Number(r.club_id) === club),

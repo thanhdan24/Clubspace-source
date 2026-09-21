@@ -21,6 +21,9 @@ import {
   Loader2,
   LockKeyhole,
   GraduationCap,
+  Eye,
+  EyeOff,
+  Sparkles,
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import {
@@ -134,6 +137,7 @@ function Brand() {
 function Login({ onLogin, demo }: any) {
   const [username, setUsername] = useState(""),
     [password, setPassword] = useState(""),
+    [showPassword, setShowPassword] = useState(false),
     [error, setError] = useState(""),
     [busy, setBusy] = useState("");
   async function signIn(role?: string) {
@@ -154,9 +158,12 @@ function Login({ onLogin, demo }: any) {
   return (
     <div className="login-page">
       <div className="login-story">
-        <Brand />
+        <div className="login-story-header">
+          <Brand />
+          <span className="platform-tag">NỀN TẢNG CLB SINH VIÊN</span>
+        </div>
         <div className="login-story-content">
-          <span className="overline">KHÔNG GIAN CÂU LẠC BỘ SINH VIÊN</span>
+          <span className="overline">KHÔNG GIAN CÂU LẠC BỘ HIỆN ĐẠI</span>
           <h1>
             Cùng nhau.
             <br />
@@ -165,103 +172,142 @@ function Login({ onLogin, demo }: any) {
             <em>điều ý nghĩa.</em>
           </h1>
           <p>
-            Mỗi thành viên, mỗi sự kiện, mỗi hành trình.
-            <br />
-            Tất cả kết nối trong một không gian.
+            Số hóa toàn diện quản lý thành viên, vòng đời sự kiện và tài chính minh bạch cho các câu lạc bộ sinh viên.
           </p>
-          <div className="login-symbols">
-            <span>
-              <Users />
-            </span>
-            <span>
-              <CalendarDays />
-            </span>
-            <span>
-              <GraduationCap />
-            </span>
+
+          <div className="login-highlights">
+            <div className="highlight-card">
+              <span className="highlight-icon green">
+                <Users size={18} />
+              </span>
+              <div>
+                <strong>Hồ sơ & Phân quyền</strong>
+                <small>5 vai trò RBAC chặt chẽ</small>
+              </div>
+            </div>
+            <div className="highlight-card">
+              <span className="highlight-icon blue">
+                <CalendarDays size={18} />
+              </span>
+              <div>
+                <strong>Vòng đời Sự kiện</strong>
+                <small>Đăng ký, duyệt & điểm danh</small>
+              </div>
+            </div>
+            <div className="highlight-card">
+              <span className="highlight-icon amber">
+                <ShieldCheck size={18} />
+              </span>
+              <div>
+                <strong>Tài chính Minh bạch</strong>
+                <small>Phê duyệt 2 lớp & Audit log</small>
+              </div>
+            </div>
           </div>
         </div>
         <div className="login-story-footer">
-          Clubspace <span>Thành viên · Hoạt động · Kết nối</span>
+          <span>Clubspace · Nhóm 11 PTTKHTPM</span>
+          <span>Bảo toàn lịch sử · An toàn dữ liệu</span>
         </div>
       </div>
       <main className="login-main">
         <div className="login-mobile-brand">
           <Brand />
         </div>
-        <div className="login-form">
-          <span className="login-icon">
-            <LockKeyhole size={24} />
-          </span>
-          <h2>Chào mừng trở lại</h2>
-          <p>Đăng nhập để bắt đầu quản lý câu lạc bộ của bạn.</p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              signIn();
-            }}
-          >
-            <div className="field">
-              <label htmlFor="username">Tên đăng nhập</label>
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                maxLength={50}
-                autoComplete="username"
-                placeholder="Nhập tên đăng nhập"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="password">Mật khẩu</label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                maxLength={200}
-                autoComplete="current-password"
-                placeholder="Nhập mật khẩu"
-              />
-            </div>
-            {error && (
-              <p role="alert" className="form-error">
-                {error}
-              </p>
-            )}
-            <Button type="submit" className="login-submit" disabled={!!busy}>
-              {busy === "login" ? <Loader2 className="animate-spin" /> : null}
-              Đăng nhập <ArrowRight size={17} />
-            </Button>
-          </form>
-          {demo && (
-            <div className="demo-login">
-              <div className="divider-label">Khám phá bản trải nghiệm</div>
-              <p>Chọn vai trò để thử các chức năng tương ứng.</p>
-              <div className="demo-roles">
-                {["LEADER", "OFFICER", "TREASURER", "MEMBER", "ADMIN"].map(
-                  (role) => (
-                    <Button
-                      key={role}
-                      disabled={!!busy}
-                      variant="outline"
-                      onClick={() => signIn(role)}
-                    >
-                      {busy === role ? (
-                        <Loader2 className="animate-spin" size={14} />
-                      ) : null}
-                      {labels[role]}
-                    </Button>
-                  ),
-                )}
+        <div className="login-card-container">
+          <div className="login-form">
+            <div className="login-header-group">
+              <span className="login-icon">
+                <LockKeyhole size={22} />
+              </span>
+              <div>
+                <h2>Chào mừng trở lại</h2>
+                <p>Đăng nhập để vào không gian quản lý câu lạc bộ của bạn.</p>
               </div>
             </div>
-          )}
-          <p className="login-help">
-            Chưa có tài khoản? Liên hệ quản trị viên của câu lạc bộ.
-          </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                signIn();
+              }}
+            >
+              <div className="field">
+                <label htmlFor="username">Tên đăng nhập</label>
+                <div className="input-with-icon">
+                  <UserRound size={17} className="input-icon" />
+                  <Input
+                    id="username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
+                    maxLength={50}
+                    autoComplete="username"
+                    placeholder="Nhập tên đăng nhập"
+                  />
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="password">Mật khẩu</label>
+                <div className="input-with-icon">
+                  <LockKeyhole size={17} className="input-icon" />
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    maxLength={200}
+                    autoComplete="current-password"
+                    placeholder="Nhập mật khẩu"
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle"
+                    aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+              {error && (
+                <p role="alert" className="form-error">
+                  {error}
+                </p>
+              )}
+              <Button type="submit" className="login-submit" disabled={!!busy}>
+                {busy === "login" ? <Loader2 className="animate-spin" /> : null}
+                Đăng nhập vào hệ thống <ArrowRight size={17} />
+              </Button>
+            </form>
+            {demo && (
+              <div className="demo-login">
+                <div className="divider-label">Khám phá nhanh theo vai trò</div>
+                <p>Chọn tài khoản để thử chức năng tương ứng:</p>
+                <div className="demo-roles">
+                  {["LEADER", "OFFICER", "TREASURER", "MEMBER", "ADMIN"].map(
+                    (role) => (
+                      <Button
+                        key={role}
+                        disabled={!!busy}
+                        variant="outline"
+                        className={"demo-chip demo-" + role.toLowerCase()}
+                        onClick={() => signIn(role)}
+                      >
+                        {busy === role ? (
+                          <Loader2 className="animate-spin" size={13} />
+                        ) : null}
+                        {labels[role]}
+                      </Button>
+                    ),
+                  )}
+                </div>
+              </div>
+            )}
+            <p className="login-help">
+              Chưa có tài khoản? Liên hệ quản trị viên của câu lạc bộ.
+            </p>
+          </div>
         </div>
       </main>
     </div>

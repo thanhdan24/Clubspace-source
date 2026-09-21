@@ -154,7 +154,7 @@ export function Events() {
     [editing, setEditing] = useState(false),
     r = useResource("events?" + f.query + "&type=" + type);
   useEffect(() => {
-    if (window.location.hash.includes("?new") && can("OFFICER"))
+    if (window.location.hash.includes("?new") && can("OFFICER", "LEADER"))
       setEditing(true);
   }, []);
   return (
@@ -164,7 +164,7 @@ export function Events() {
         title="Sự kiện câu lạc bộ"
         description="Từ những buổi sinh hoạt đến trải nghiệm đáng nhớ."
       >
-        {can("OFFICER") && (
+        {can("OFFICER", "LEADER") && (
           <Button onClick={() => setEditing(true)}>
             <Plus />
             Tạo sự kiện

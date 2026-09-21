@@ -87,7 +87,7 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     return json(await list(c, sql, p, "e.start_at DESC", url));
   }
   if (path === "events" && method === "POST") {
-    permit(c, "OFFICER");
+    permit(c, "OFFICER", "LEADER");
     const b = eventForm.parse(await body(req));
     await checkEvent(c, b);
     const id = await insert(
