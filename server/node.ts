@@ -2,15 +2,45 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
-import sql from "mssql";
-import { SqlServerDatabase, connectionConfig } from "./sqlserver";
 import { handleApi } from "./api";
+import { prisma, PrismaDatabase } from "./prisma";
+import { Prisma } from "@prisma/client";
+
 const port = Number(process.env.PORT || 3001),
   host = process.env.HOST || "127.0.0.1";
-const pool = await new sql.ConnectionPool(connectionConfig()).connect();
-await pool.request().query("SELECT 1 AS ok");
+
+const isSupabase = Boolean(
+  process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("[YOUR-PROJECT-REF]"),
+);
+
+let sqlPool: any = null;
+let SqlServerDatabaseClass: any = null;
+
+if (isSupabase) {
+  try {
+    await prisma.$connect();
+    await prisma.$queryRawUnsafe("SELECT 1 AS ok");
+    console.log("[Supabase/Prisma] Đã kết nối thành công tới Supabase (PostgreSQL).");
+  } catch (err: any) {
+    console.error("[Supabase/Prisma] Lỗi kết nối database:", err.message);
+    throw err;
+  }
+} else if (process.env.DB_SERVER) {
+  const mssql = await import("mssql");
+  const { SqlServerDatabase, connectionConfig } = await import("./sqlserver");
+  SqlServerDatabaseClass = SqlServerDatabase;
+  sqlPool = await new mssql.default.ConnectionPool(connectionConfig()).connect();
+  await sqlPool.request().query("SELECT 1 AS ok");
+  console.log("[SQL Server] Đã kết nối thành công tới SQL Server.");
+} else {
+  console.warn(
+    "[Database Warning] Chưa cấu hình DATABASE_URL (Supabase) hoặc DB_SERVER (SQL Server). Vui lòng cập nhật tệp .env.",
+  );
+}
+
 const uploadRoot = path.resolve(process.env.UPLOAD_DIR || "private-uploads");
 await fs.mkdir(uploadRoot, { recursive: true });
+
 const bucket = {
   async put(key: string, bytes: Uint8Array, metadata: any) {
     const p = path.join(uploadRoot, key);
@@ -30,7 +60,8 @@ const bucket = {
     }
   },
 };
-const mime: any = {
+
+const mime: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript",
   ".css": "text/css",
@@ -39,6 +70,13 @@ const mime: any = {
   ".woff2": "font/woff2",
   ".ico": "image/x-icon",
 };
+
+class RollbackError extends Error {
+  constructor(public response: Response) {
+    super("Rollback");
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     if ((req.url || "").startsWith("/api/")) {
@@ -58,6 +96,7 @@ const server = http.createServer(async (req, res) => {
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers))
         if (v) headers.set(k, Array.isArray(v) ? v.join("; ") : v);
+
       const request = new Request(url, {
         method: req.method,
         headers,
@@ -65,27 +104,74 @@ const server = http.createServer(async (req, res) => {
           ? undefined
           : Buffer.concat(chunks),
       });
-      const tx = new sql.Transaction(pool);
-      await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
       let response: Response;
-      try {
-        response = await handleApi(request, new SqlServerDatabase(pool, tx), {
-          ...process.env,
-          DEMO_MODE: "false",
-          BUCKET: bucket,
-        });
-        if (response.status >= 400 && !url.includes("/auth/login"))
-          await tx.rollback();
-        else await tx.commit();
-      } catch (e) {
-        await tx.rollback().catch(() => {});
-        throw e;
+
+      if (isSupabase) {
+        try {
+          response = await prisma.$transaction(
+            async (tx) => {
+              const db = new PrismaDatabase(tx);
+              const result = await handleApi(request, db, {
+                ...process.env,
+                DEMO_MODE: "false",
+                BUCKET: bucket,
+              });
+              if (result.status >= 400 && !url.includes("/auth/login")) {
+                throw new RollbackError(result);
+              }
+              return result;
+            },
+            {
+              isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            },
+          );
+        } catch (e: any) {
+          if (e instanceof RollbackError) {
+            response = e.response;
+          } else {
+            throw e;
+          }
+        }
+      } else if (sqlPool) {
+        const mssql = await import("mssql");
+        const tx = new mssql.default.Transaction(sqlPool);
+        await tx.begin(mssql.default.ISOLATION_LEVEL.SERIALIZABLE);
+        try {
+          response = await handleApi(
+            request,
+            new SqlServerDatabaseClass(sqlPool, tx),
+            {
+              ...process.env,
+              DEMO_MODE: "false",
+              BUCKET: bucket,
+            },
+          );
+          if (response.status >= 400 && !url.includes("/auth/login")) {
+            await tx.rollback();
+          } else {
+            await tx.commit();
+          }
+        } catch (e) {
+          await tx.rollback().catch(() => {});
+          throw e;
+        }
+      } else {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error: "Chưa cấu hình kết nối database trong file .env.",
+          }),
+        );
+        return;
       }
+
       res.writeHead(response.status, Object.fromEntries(response.headers));
       if (response.body) Readable.fromWeb(response.body as any).pipe(res);
       else res.end();
       return;
     }
+
     const root = path.resolve("web-dist");
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
     let file = path.resolve(root, "." + decodeURIComponent(url.pathname));
@@ -124,13 +210,18 @@ const server = http.createServer(async (req, res) => {
     } else res.end();
   }
 });
+
 server.listen(port, host, () =>
-  console.log(`Clubspace SQL Server đang chạy trên ${host}:${port}`),
+  console.log(
+    `Clubspace server đang chạy trên ${host}:${port} (${isSupabase ? "Supabase PostgreSQL / Prisma" : "SQL Server"})`,
+  ),
 );
+
 for (const event of ["SIGINT", "SIGTERM"])
-  process.on(event, () =>
-    server.close(() => {
-      pool.close();
+  process.on(event, async () => {
+    server.close(async () => {
+      if (isSupabase) await prisma.$disconnect();
+      if (sqlPool) await sqlPool.close();
       process.exit(0);
-    }),
-  );
+    });
+  });

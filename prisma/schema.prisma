@@ -1,0 +1,284 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Club {
+  club_id      Int       @id @default(autoincrement()) @map("club_id")
+  club_code    String    @unique @db.VarChar(30) @map("club_code")
+  club_name    String    @db.VarChar(200) @map("club_name")
+  description  String?   @db.Text @map("description")
+  founded_date DateTime? @db.Date @map("founded_date")
+  club_status  String    @db.VarChar(20) @map("club_status")
+  created_at   DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
+
+  members      ClubMember[]
+  events       Event[]
+  transactions FinancialTransaction[]
+  categories   FinanceCategory[]
+  user_roles   UserRole[]
+  audit_logs   AuditLog[]
+
+  @@map("CLUBS")
+}
+
+model User {
+  user_id        Int       @id @default(autoincrement()) @map("user_id")
+  student_code   String?   @unique @db.VarChar(30) @map("student_code")
+  username       String    @unique @db.VarChar(50) @map("username")
+  password_hash  String    @db.VarChar(255) @map("password_hash")
+  full_name      String    @db.VarChar(150) @map("full_name")
+  email          String?   @unique @db.VarChar(150) @map("email")
+  phone          String?   @db.VarChar(20) @map("phone")
+  faculty        String?   @db.VarChar(150) @map("faculty")
+  class_name     String?   @db.VarChar(100) @map("class_name")
+  account_status String    @db.VarChar(20) @map("account_status")
+  created_at     DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
+  updated_at     DateTime? @db.Timestamp(0) @map("updated_at")
+
+  memberships           ClubMember[]
+  created_events        Event[]                @relation("EventCreatedBy")
+  reviewed_registrations EventRegistration[]   @relation("RegistrationReviewedBy")
+  recorded_attendances  Attendance[]           @relation("AttendanceRecordedBy")
+  created_transactions  FinancialTransaction[] @relation("TransactionCreatedBy")
+  approved_transactions FinancialTransaction[] @relation("TransactionApprovedBy")
+  status_changes        MemberStatusHistory[]  @relation("StatusChangedBy")
+  user_roles            UserRole[]             @relation("UserRoleUser")
+  assigned_user_roles   UserRole[]             @relation("UserRoleAssignedBy")
+  audit_logs            AuditLog[]
+  sessions              AuthSession[]
+
+  @@map("USERS")
+}
+
+model Role {
+  role_id   Int        @id @default(autoincrement()) @map("role_id")
+  role_code String     @unique @db.VarChar(30) @map("role_code")
+  role_name String     @db.VarChar(100) @map("role_name")
+
+  user_roles UserRole[]
+
+  @@map("ROLES")
+}
+
+model UserRole {
+  user_role_id Int      @id @default(autoincrement()) @map("user_role_id")
+  user_id      Int      @map("user_id")
+  role_id      Int      @map("role_id")
+  club_id      Int?     @map("club_id")
+  assigned_by  Int?     @map("assigned_by")
+  assigned_at  DateTime @default(now()) @db.Timestamp(0) @map("assigned_at")
+  active_flag  Int      @default(1) @db.SmallInt @map("active_flag")
+
+  user        User   @relation("UserRoleUser", fields: [user_id], references: [user_id])
+  role        Role   @relation(fields: [role_id], references: [role_id])
+  club        Club?  @relation(fields: [club_id], references: [club_id])
+  assigned_to User?  @relation("UserRoleAssignedBy", fields: [assigned_by], references: [user_id])
+
+  @@unique([user_id, role_id, club_id], name: "UQ_USER_ROLES_scope")
+  @@index([user_id, club_id, active_flag], name: "IX_USER_ROLES_user_club_active")
+  @@map("USER_ROLES")
+}
+
+model ClubMember {
+  club_member_id  Int       @id @default(autoincrement()) @map("club_member_id")
+  club_id         Int       @map("club_id")
+  user_id         Int       @map("user_id")
+  member_code     String    @db.VarChar(50) @map("member_code")
+  join_date       DateTime  @db.Date @map("join_date")
+  leave_date      DateTime? @db.Date @map("leave_date")
+  member_status   String    @db.VarChar(20) @map("member_status")
+  department_name String?   @db.VarChar(100) @map("department_name")
+  position_name   String?   @db.VarChar(100) @map("position_name")
+  created_at      DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
+  updated_at      DateTime? @db.Timestamp(0) @map("updated_at")
+
+  club           Club                   @relation(fields: [club_id], references: [club_id])
+  user           User                   @relation(fields: [user_id], references: [user_id])
+  status_history MemberStatusHistory[]
+  registrations  EventRegistration[]
+  attendances    Attendance[]
+  transactions   FinancialTransaction[]
+
+  @@unique([club_id, member_code], name: "UQ_CLUB_MEMBERS_club_member_code")
+  @@unique([club_id, user_id], name: "UQ_CLUB_MEMBERS_club_user")
+  @@index([club_id, member_status], name: "IX_CM_club_status")
+  @@map("CLUB_MEMBERS")
+}
+
+model MemberStatusHistory {
+  history_id     Int      @id @default(autoincrement()) @map("history_id")
+  club_member_id Int      @map("club_member_id")
+  old_status     String?  @db.VarChar(20) @map("old_status")
+  new_status     String   @db.VarChar(20) @map("new_status")
+  reason         String?  @db.VarChar(500) @map("reason")
+  changed_by     Int      @map("changed_by")
+  changed_at     DateTime @default(now()) @db.Timestamp(0) @map("changed_at")
+
+  member     ClubMember @relation(fields: [club_member_id], references: [club_member_id])
+  changer    User       @relation("StatusChangedBy", fields: [changed_by], references: [user_id])
+
+  @@map("MEMBER_STATUS_HISTORY")
+}
+
+model Event {
+  event_id              Int       @id @default(autoincrement()) @map("event_id")
+  club_id               Int       @map("club_id")
+  created_by            Int       @map("created_by")
+  event_name            String    @db.VarChar(200) @map("event_name")
+  event_type            String    @db.VarChar(100) @map("event_type")
+  location              String    @db.VarChar(255) @map("location")
+  start_at              DateTime  @db.Timestamp(0) @map("start_at")
+  end_at                DateTime  @db.Timestamp(0) @map("end_at")
+  registration_deadline DateTime  @db.Timestamp(0) @map("registration_deadline")
+  capacity              Int?      @map("capacity")
+  approval_required     Int       @default(0) @db.SmallInt @map("approval_required")
+  event_status          String    @db.VarChar(20) @map("event_status")
+  attendance_locked     Int       @default(0) @db.SmallInt @map("attendance_locked")
+  created_at            DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
+  updated_at            DateTime? @db.Timestamp(0) @map("updated_at")
+
+  club          Club                   @relation(fields: [club_id], references: [club_id])
+  creator       User                   @relation("EventCreatedBy", fields: [created_by], references: [user_id])
+  registrations EventRegistration[]
+  attendances   Attendance[]
+  transactions  FinancialTransaction[]
+
+  @@index([club_id, start_at], name: "IX_EVENTS_club_time")
+  @@map("EVENTS")
+}
+
+model EventRegistration {
+  registration_id     Int       @id @default(autoincrement()) @map("registration_id")
+  event_id            Int       @map("event_id")
+  club_member_id      Int       @map("club_member_id")
+  registration_status String    @db.VarChar(20) @map("registration_status")
+  registered_at       DateTime  @default(now()) @db.Timestamp(0) @map("registered_at")
+  reviewed_by         Int?      @map("reviewed_by")
+  reviewed_at         DateTime? @db.Timestamp(0) @map("reviewed_at")
+  cancelled_at        DateTime? @db.Timestamp(0) @map("cancelled_at")
+
+  event       Event        @relation(fields: [event_id], references: [event_id])
+  member      ClubMember   @relation(fields: [club_member_id], references: [club_member_id])
+  reviewer    User?        @relation("RegistrationReviewedBy", fields: [reviewed_by], references: [user_id])
+  attendances Attendance[]
+
+  @@unique([event_id, club_member_id], name: "UQ_EVENT_REGISTRATIONS_event_member")
+  @@index([event_id, registration_status], name: "IX_ER_event_status")
+  @@map("EVENT_REGISTRATIONS")
+}
+
+model Attendance {
+  attendance_id     Int       @id @default(autoincrement()) @map("attendance_id")
+  event_id          Int       @map("event_id")
+  club_member_id    Int       @map("club_member_id")
+  registration_id   Int?      @map("registration_id")
+  attendance_status String    @db.VarChar(20) @map("attendance_status")
+  check_in_at       DateTime? @db.Timestamp(0) @map("check_in_at")
+  recorded_by       Int       @map("recorded_by")
+  recorded_at       DateTime  @default(now()) @db.Timestamp(0) @map("recorded_at")
+
+  event        Event              @relation(fields: [event_id], references: [event_id])
+  member       ClubMember         @relation(fields: [club_member_id], references: [club_member_id])
+  recorder     User               @relation("AttendanceRecordedBy", fields: [recorded_by], references: [user_id])
+  registration EventRegistration? @relation(fields: [registration_id], references: [registration_id])
+
+  @@unique([event_id, club_member_id], name: "UQ_ATTENDANCE_event_member")
+  @@index([event_id, attendance_status], name: "IX_ATT_event_status")
+  @@map("ATTENDANCE")
+}
+
+model FinanceCategory {
+  category_id   Int    @id @default(autoincrement()) @map("category_id")
+  club_id       Int    @map("club_id")
+  category_type String @db.VarChar(20) @map("category_type")
+  category_name String @db.VarChar(100) @map("category_name")
+  active_flag   Int    @default(1) @db.SmallInt @map("active_flag")
+
+  club         Club                   @relation(fields: [club_id], references: [club_id])
+  transactions FinancialTransaction[]
+
+  @@unique([club_id, category_type, category_name], name: "UQ_FINANCE_CATEGORIES")
+  @@map("FINANCE_CATEGORIES")
+}
+
+model FinancialTransaction {
+  transaction_id     Int       @id @default(autoincrement()) @map("transaction_id")
+  club_id            Int       @map("club_id")
+  event_id           Int?      @map("event_id")
+  category_id        Int       @map("category_id")
+  related_member_id  Int?      @map("related_member_id")
+  transaction_type   String    @db.VarChar(20) @map("transaction_type")
+  amount             Decimal   @db.Decimal(15, 2) @map("amount")
+  transaction_date   DateTime  @db.Date @map("transaction_date")
+  description        String    @db.VarChar(500) @map("description")
+  evidence_url       String?   @db.VarChar(500) @map("evidence_url")
+  transaction_status String    @db.VarChar(30) @map("transaction_status")
+  created_by         Int       @map("created_by")
+  approved_by        Int?      @map("approved_by")
+  created_at         DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
+  approved_at        DateTime? @db.Timestamp(0) @map("approved_at")
+  rejection_reason   String?   @db.VarChar(500) @map("rejection_reason")
+
+  club           Club             @relation(fields: [club_id], references: [club_id])
+  event          Event?           @relation(fields: [event_id], references: [event_id])
+  category       FinanceCategory  @relation(fields: [category_id], references: [category_id])
+  related_member ClubMember?      @relation(fields: [related_member_id], references: [club_member_id])
+  creator        User             @relation("TransactionCreatedBy", fields: [created_by], references: [user_id])
+  approver       User?            @relation("TransactionApprovedBy", fields: [approved_by], references: [user_id])
+
+  @@index([club_id, transaction_date], name: "IX_FT_club_date")
+  @@index([transaction_status], name: "IX_FT_status")
+  @@map("FINANCIAL_TRANSACTIONS")
+}
+
+model AuditLog {
+  audit_id    Int      @id @default(autoincrement()) @map("audit_id")
+  user_id     Int?     @map("user_id")
+  club_id     Int?     @map("club_id")
+  action_code String   @db.VarChar(50) @map("action_code")
+  entity_name String   @db.VarChar(100) @map("entity_name")
+  entity_id   String?  @db.VarChar(100) @map("entity_id")
+  old_value   String?  @db.Text @map("old_value")
+  new_value   String?  @db.Text @map("new_value")
+  created_at  DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  club Club? @relation(fields: [club_id], references: [club_id])
+  user User? @relation(fields: [user_id], references: [user_id])
+
+  @@index([entity_name, entity_id], name: "IX_AL_entity")
+  @@map("AUDIT_LOGS")
+}
+
+model AuthSession {
+  token_hash String   @id @db.VarChar(64) @map("token_hash")
+  user_id    Int      @map("user_id")
+  expires_at BigInt   @map("expires_at")
+  created_at DateTime @default(now()) @db.Timestamp(0) @map("created_at")
+
+  user User @relation(fields: [user_id], references: [user_id])
+
+  @@index([user_id], name: "IX_AUTH_SESSIONS_user")
+  @@map("AUTH_SESSIONS")
+}
+
+model AuthAttempt {
+  attempt_id   Int    @id @default(autoincrement()) @map("attempt_id")
+  identifier   String @db.VarChar(64) @map("identifier")
+  attempted_at BigInt @map("attempted_at")
+
+  @@index([identifier, attempted_at], name: "IX_AUTH_ATTEMPTS_identifier_time")
+  @@map("AUTH_ATTEMPTS")
+}
+
+model AppSetup {
+  setup_id     Int    @id @map("setup_id")
+  completed_at String @db.VarChar(30) @map("completed_at")
+
+  @@map("APP_SETUP")
+}
