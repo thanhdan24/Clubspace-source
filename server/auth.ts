@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   all,
   one,
-  stmt,
   execute,
   now,
   fail,
@@ -14,6 +13,7 @@ import {
   ApiError,
   type Context,
   type Database,
+  type Row,
 } from "./core";
 export async function digest(token: string) {
   return Array.from(
@@ -38,7 +38,12 @@ export async function authenticate(db: Database, req: Request) {
     [await digest(token), Date.now(), "ACTIVE"],
   );
 }
-export async function session(db: Database, req: Request, user: any) {
+export type AuthEnv = Record<string, unknown> & {
+  DEMO_MODE?: string;
+  DEMO_PASSWORD?: string;
+  SQLSERVER_API_URL?: string;
+};
+export async function session(db: Database, req: Request, user: Row) {
   const token = crypto.randomUUID() + crypto.randomUUID();
   await execute(
     db,
@@ -53,7 +58,7 @@ export async function authRoute(
   db: Database,
   req: Request,
   path: string,
-  env: any,
+  env: AuthEnv,
 ) {
   if (path === "auth/info" && req.method === "GET")
     return json({
@@ -119,11 +124,13 @@ export async function authRoute(
       ["demo_" + role.toLowerCase(), "ACTIVE"],
     );
     fail(
-      user && (await bcrypt.compare(env.DEMO_PASSWORD, user.password_hash)),
+      user &&
+        env.DEMO_PASSWORD &&
+        (await bcrypt.compare(env.DEMO_PASSWORD, String(user.password_hash))),
       "Tài khoản trải nghiệm chưa được khởi tạo.",
       503,
     );
-    return session(db, req, user);
+    return session(db, req, user!);
   }
   if (path === "auth/logout" && req.method === "POST") {
     const token = (req.headers.get("cookie") || "").match(
@@ -140,7 +147,7 @@ export async function authRoute(
 export async function context(
   db: Database,
   req: Request,
-  env: any,
+  env: AuthEnv,
 ): Promise<Context> {
   const user = await authenticate(db, req);
   fail(user, "Vui lòng đăng nhập để tiếp tục.", 401);
