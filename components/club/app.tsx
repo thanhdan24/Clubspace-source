@@ -24,6 +24,7 @@ import {
   Eye,
   EyeOff,
   Sparkles,
+  Compass,
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import {
@@ -50,7 +51,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { AppContext, fetchApi, Avatar, labels, SelectBox, prefetchResource } from "./shared";
+import { AppContext, fetchApi, Avatar, labels, SelectBox, prefetchResource, clearResourceCache } from "./shared";
 import Dashboard from "./dashboard";
 import WebTools from "./web-tools";
 import Notifications from "./notifications";
@@ -62,11 +63,13 @@ import {
   Profile,
   ClubSettings,
   Audit,
+  ExploreClubs,
 } from "./people-pages";
 import { Events, EventDetail, MyRegistrations } from "./event-pages";
 import { Finance, Categories, Reports } from "./finance-pages";
 const navigation = [
   { id: "dashboard", label: "Tổng quan", icon: LayoutDashboard, roles: [] },
+  { id: "explore-clubs", label: "Khám phá CLB", icon: Compass, roles: [] },
   {
     id: "members",
     label: "Thành viên",
@@ -448,6 +451,7 @@ export default function ClubApp() {
     ].find((n) => n.id === routePath.split("/")[0])?.label || "Sự kiện";
   const logout = async () => {
     await fetchApi("auth/logout", club, { method: "POST", body: "{}" });
+    clearResourceCache();
     setSession(null);
     setClub(0);
     navigate("dashboard");
@@ -494,8 +498,16 @@ export default function ClubApp() {
       case "registrations":
         page = <MyRegistrations />;
         break;
+      case "explore-clubs":
+        page = <ExploreClubs />;
+        break;
       default:
-        page = <Dashboard />;
+        page =
+          session.clubs.length === 0 ? (
+            <ExploreClubs onboarding />
+          ) : (
+            <Dashboard />
+          );
     }
   return (
     <AppContext.Provider
@@ -540,18 +552,27 @@ export default function ClubApp() {
               </span>
               <div>
                 <span>CÂU LẠC BỘ CỦA BẠN</span>
-                <SelectBox
-                  label="Chọn câu lạc bộ"
-                  value={club}
-                  onChange={(v) => {
-                    load(Number(v));
-                    refresh();
-                  }}
-                  options={session.clubs.map((c: any) => ({
-                    value: c.club_id,
-                    label: c.club_name.replace("CLB ", ""),
-                  }))}
-                />
+                {session.clubs.length > 0 ? (
+                  <SelectBox
+                    label="Chọn câu lạc bộ"
+                    value={club}
+                    onChange={(v) => {
+                      load(Number(v));
+                      refresh();
+                    }}
+                    options={session.clubs.map((c: any) => ({
+                      value: c.club_id,
+                      label: c.club_name.replace("CLB ", ""),
+                    }))}
+                  />
+                ) : (
+                  <button
+                    className="text-xs text-primary font-medium hover:underline text-left block mt-1"
+                    onClick={() => navigate("explore-clubs")}
+                  >
+                    Khám phá & tham gia ➔
+                  </button>
+                )}
               </div>
             </div>
             <SidebarGroup>

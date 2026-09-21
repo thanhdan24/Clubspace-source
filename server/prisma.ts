@@ -21,6 +21,7 @@ const TABLE_NAMES = [
   "AUTH_SESSIONS",
   "AUTH_ATTEMPTS",
   "APP_SETUP",
+  "CLUB_JOIN_REQUESTS",
   "vw_club_fund_summary",
   "vw_event_statistics",
 ];

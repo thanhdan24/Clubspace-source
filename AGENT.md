@@ -62,9 +62,9 @@ Một yêu cầu nghiệp vụ của 4 vai trò cấp CLB chỉ hợp lệ khi c
 
 ---
 
-## 4. 22 Quy tắc Nghiệp vụ Bất biến (Business Rules: BR-01 -> BR-22)
+## 4. 23 Quy tắc Nghiệp vụ Bất biến (Business Rules: BR-01 -> BR-23)
 
-AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc nghiệp vụ sau:
+AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 23 quy tắc nghiệp vụ sau:
 
 - **`BR-01`**: `username` là duy nhất trên toàn hệ thống (`UQ_USERS_username`).
 - **`BR-02`**: Mã sinh viên `student_code` (nếu có) là duy nhất trên toàn hệ thống (`UX_USERS_student_code`).
@@ -90,6 +90,7 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc n
 - **`BR-20` (Xử lý toàn vẹn danh sách):** Trước khi chốt danh sách tham dự sự kiện (`CLOSED`), phải xử lý hết toàn bộ đăng ký `PENDING`. Khi khóa điểm danh (`attendance_locked = 1`), tất cả thành viên `CONFIRMED` phải có kết quả điểm danh cụ thể.
 - **`BR-21` (Bảo vệ Leader cuối cùng):** Không được gỡ vai trò hoặc vô hiệu hóa tài khoản của `LEADER` hoạt động cuối cùng trong CLB nếu chưa bổ nhiệm người thay thế.
 - **`BR-22` (Ghi sổ Idempotent):** Giao dịch tài chính chỉ được chuyển sang `POSTED` đúng một lần. Kiểm tra trạng thái và số dư quỹ phải diễn ra trong cùng transaction cơ sở dữ liệu.
+- **`BR-23` (Đăng ký và Xét duyệt Gia nhập CLB):** Bất kỳ người dùng nào có tài khoản `account_status = 'ACTIVE'` đều có thể nộp đơn xin gia nhập câu lạc bộ đang hoạt động (`club_status = 'ACTIVE'`). Đơn gia nhập ở trạng thái ban đầu là `PENDING`. Mỗi người dùng chỉ có tối đa 1 đơn `PENDING` cho một CLB (`UQ_CLUB_JOIN_REQUESTS_user_club_pending`). Chỉ Cán bộ phụ trách nhân sự (`OFFICER`) hoặc Chủ nhiệm (`LEADER`) của chính CLB đó mới có thẩm quyền phê duyệt (`APPROVED`) hoặc từ chối (`REJECTED`) đơn. Khi duyệt `APPROVED`, hệ thống tự động khởi tạo/kích hoạt hồ sơ thành viên chính thức (`CLUB_MEMBERS` với `member_status = 'ACTIVE'`) và cấp vai trò `MEMBER` trong `USER_ROLES`. Khi từ chối `REJECTED`, bắt buộc phải ghi rõ lý do từ chối (`review_reason`). Thao tác nộp đơn và xét duyệt phải được ghi nhận vào `AUDIT_LOGS`.
 
 ---
 
@@ -128,11 +129,16 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc n
      +------------> [REJECTED]         [CANCELLED] (LEADER duyệt hủy có lý do)
                        |
                        +-> [DRAFT] (để sửa & gửi lại)
+
+7. Đơn xin gia nhập CLB (CLUB_JOIN_REQUESTS):
+   [PENDING] --------+---> [APPROVED] (Tạo/kích hoạt CLUB_MEMBERS và cấp role MEMBER)
+     |               +---> [REJECTED] (Lưu review_reason)
+     +---------------+---> [CANCELLED] (Người nộp tự rút đơn trước khi duyệt)
 ```
 
 ---
 
-## 6. 10 Ca Sử dụng Cốt lõi (Core Use Cases: UC-01 -> UC-10)
+## 6. 11 Ca Sử dụng Cốt lõi (Core Use Cases: UC-01 -> UC-11)
 
 ### UC-01: Đăng nhập và Phân quyền
 - **Actor:** Tất cả người dùng.
@@ -190,11 +196,23 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc n
   - `TREASURER`: Sổ quỹ chi tiết, tổng thu/chi, công nợ/tồn quỹ theo kỳ.
   - `MEMBER`: Lịch sử cá nhân và kết quả tham gia của chính mình.
 
+### UC-11: Khám phá, Đăng ký và Xét duyệt Gia nhập Câu lạc bộ
+- **Actor:** 
+  - Người nộp đơn: Bất kỳ người dùng có tài khoản `account_status = 'ACTIVE'` (kể cả chưa tham gia CLB nào hoặc đang là thành viên/cán bộ của CLB khác).
+  - Người xét duyệt: Cán bộ (`OFFICER`) hoặc Chủ nhiệm (`LEADER`) của chính CLB nhận đơn.
+- **Mô tả:** 
+  - Người dùng truy cập trang "Khám phá CLB" (`explore-clubs`), xem danh sách các CLB đang hoạt động kèm thông tin giới thiệu, số lượng thành viên và trạng thái tham gia của bản thân.
+  - Người dùng gửi đơn đăng ký gia nhập kèm lời nhắn nguyện vọng (`message`). Đơn được lưu với trạng thái `PENDING`.
+  - Cán bộ hoặc Chủ nhiệm CLB vào mục "Thành viên" -> tab "Đơn xin gia nhập" để xem danh sách đơn đang chờ duyệt, xem thông tin sinh viên, lời nhắn, và tiến hành xét duyệt:
+    - **Chấp thuận (`APPROVED`):** Chọn phân ban trực thuộc, hệ thống tự động cấp mã thành viên, tạo hồ sơ `CLUB_MEMBERS` với trạng thái `ACTIVE`, cấp quyền vai trò `MEMBER` trong `USER_ROLES`, và ghi `AUDIT_LOGS`.
+    - **Từ chối (`REJECTED`):** Nhập lý do từ chối (`review_reason`), cập nhật trạng thái đơn và ghi `AUDIT_LOGS`.
+- **Ràng buộc:** Không được nộp đơn nếu đã là thành viên chính thức (`ACTIVE`) của CLB đó; Không được nộp trùng lặp khi đã có đơn đang chờ duyệt (`PENDING`); Chỉ `OFFICER` và `LEADER` của CLB mới có quyền xét duyệt đơn của CLB mình (`BR-23`).
+
 ---
 
 ## 7. Cấu trúc Cơ sở Dữ liệu (Schema & Views Reference)
 
-### 15 Models Prisma trong [`prisma/schema.prisma`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/prisma/schema.prisma):
+### 16 Models Prisma trong [`prisma/schema.prisma`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/prisma/schema.prisma):
 1. `User`: Tài khoản người dùng (`user_id`, `student_code`, `username`, `password_hash`, `full_name`, `email`, `account_status`, v.v.).
 2. `Club`: Thông tin câu lạc bộ (`club_id`, `club_code`, `club_name`, `club_status`, v.v.).
 3. `Role`: Danh mục 5 vai trò hệ thống (`role_id`, `role_code`, `role_name`).
@@ -210,6 +228,7 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc n
 13. `AuthSession`: Phiên làm việc xác thực (`session_id`, `user_id`, `token_hash`, `expires_at`, `revoked_at`).
 14. `AuthAttempt`: Kiểm soát đăng nhập/rate-limiting (`attempt_id`, `username`, `success_flag`, `ip_address`, `created_at`).
 15. `AppSetup`: Cờ khởi tạo hệ thống (`setup_key`, `setup_value`, `created_at`).
+16. `ClubJoinRequest`: Đơn xin gia nhập câu lạc bộ (`request_id`, `club_id`, `user_id`, `message`, `status` ['PENDING'/'APPROVED'/'REJECTED'/'CANCELLED'], `reviewed_by`, `review_reason`, `reviewed_at`, `created_at`, `updated_at`).
 
 ### 2 Views Tổng hợp:
 - **`vw_club_fund_summary`**: Tính `total_income`, `total_expense`, `balance` theo từng `club_id` (chỉ gom nhóm các giao dịch `transaction_status = 'POSTED'`).
@@ -232,7 +251,7 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 22 quy tắc n
    Tuyệt đối không ghép chuỗi (string concatenation) trong câu truy vấn SQL để phòng ngừa rủi ro SQL Injection. Luôn dùng Prisma Client hoặc cơ chế binding tham số `$1`, `$2`...
 6. **Bảo toàn và chạy Test sau khi sửa code:**
    Mỗi khi tạo mới hoặc sửa đổi code backend/frontend, **BẮT BUỘC** chạy kiểm tra:
-   - `pnpm test` (đảm bảo 21/21 bộ test đều pass).
+   - `pnpm test` (đảm bảo 23/23 bộ test đều pass).
    - `pnpm typecheck` (`pnpm exec tsc --noEmit` đạt 0 lỗi).
 
 ### NHỮNG ĐIỀU TUYỆT ĐỐI KHÔNG ĐƯỢC LÀM (DONTs):
@@ -257,7 +276,7 @@ pnpm build
 # Khởi chạy server production
 pnpm start
 
-# Chạy toàn bộ 21 bộ kiểm thử unit/integration test
+# Chạy toàn bộ 23 bộ kiểm thử unit/integration test
 pnpm test
 
 # Kiểm tra toàn bộ lỗi TypeScript trong codebase

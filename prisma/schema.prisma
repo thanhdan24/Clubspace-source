@@ -17,12 +17,13 @@ model Club {
   club_status  String    @db.VarChar(20) @map("club_status")
   created_at   DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
 
-  members      ClubMember[]
-  events       Event[]
-  transactions FinancialTransaction[]
-  categories   FinanceCategory[]
-  user_roles   UserRole[]
-  audit_logs   AuditLog[]
+  members       ClubMember[]
+  events        Event[]
+  transactions  FinancialTransaction[]
+  categories    FinanceCategory[]
+  user_roles    UserRole[]
+  audit_logs    AuditLog[]
+  join_requests ClubJoinRequest[]
 
   @@map("CLUBS")
 }
@@ -49,9 +50,11 @@ model User {
   approved_transactions FinancialTransaction[] @relation("TransactionApprovedBy")
   status_changes        MemberStatusHistory[]  @relation("StatusChangedBy")
   user_roles            UserRole[]             @relation("UserRoleUser")
-  assigned_user_roles   UserRole[]             @relation("UserRoleAssignedBy")
-  audit_logs            AuditLog[]
-  sessions              AuthSession[]
+  assigned_user_roles    UserRole[]             @relation("UserRoleAssignedBy")
+  audit_logs             AuditLog[]
+  sessions               AuthSession[]
+  join_requests          ClubJoinRequest[]      @relation("JoinRequestUser")
+  reviewed_join_requests ClubJoinRequest[]      @relation("JoinRequestReviewer")
 
   @@map("USERS")
 }
@@ -282,4 +285,25 @@ model AppSetup {
   completed_at String @db.VarChar(30) @map("completed_at")
 
   @@map("APP_SETUP")
+}
+
+model ClubJoinRequest {
+  request_id    Int       @id @default(autoincrement()) @map("request_id")
+  club_id       Int       @map("club_id")
+  user_id       Int       @map("user_id")
+  message       String?   @db.VarChar(1000) @map("message")
+  status        String    @default("PENDING") @db.VarChar(20) @map("status")
+  reviewed_by   Int?      @map("reviewed_by")
+  reviewed_at   DateTime? @db.Timestamp(0) @map("reviewed_at")
+  review_reason String?   @db.VarChar(500) @map("review_reason")
+  created_at    DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
+  updated_at    DateTime? @db.Timestamp(0) @map("updated_at")
+
+  club     Club  @relation(fields: [club_id], references: [club_id])
+  user     User  @relation("JoinRequestUser", fields: [user_id], references: [user_id])
+  reviewer User? @relation("JoinRequestReviewer", fields: [reviewed_by], references: [user_id])
+
+  @@index([club_id, status], name: "IX_CJR_club_status")
+  @@index([user_id], name: "IX_CJR_user_id")
+  @@map("CLUB_JOIN_REQUESTS")
 }

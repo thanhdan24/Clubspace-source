@@ -15,6 +15,9 @@ import {
   KeyRound,
   Check,
   Trash2,
+  Compass,
+  Clock,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,7 +27,15 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { toast } from "sonner";
 import {
   useApp,
   useResource,
@@ -123,15 +134,27 @@ function MemberDetail({ id, onClose }: any) {
   );
 }
 export function Members() {
-  const { can, mutate, club } = useApp(),
+  const { can, mutate, club, refresh } = useApp(),
     f = useFilters(),
     r = useResource("members?" + f.query),
     options = useResource("options");
+  const isOfficerOrLeader = can("OFFICER", "LEADER");
+  const [tab, setTab] = useState<"members" | "requests">("members");
+  const reqFilter = useFilters();
+  const reqResource = useResource(
+    tab === "requests" ? "join-requests?" + reqFilter.query : null,
+  );
+  const pendingRequests = useResource(
+    isOfficerOrLeader ? "join-requests?status=PENDING" : null,
+  );
+  const [approveModal, setApproveModal] = useState<Row | null>(null);
+  const [rejectModal, setRejectModal] = useState<Row | null>(null);
+  const [selectedDept, setSelectedDept] = useState("Ban Thành viên");
   const [editing, setEditing] = useState<Row | null>(
-      typeof window !== "undefined" && window.location.hash.includes("?new")
-        ? {}
-        : null,
-    ),
+    typeof window !== "undefined" && window.location.hash.includes("?new")
+      ? {}
+      : null,
+  ),
     [view, setView] = useState<number | null>(null);
   const fields: Field[] = [
     ...(!editing?.club_member_id
@@ -198,58 +221,274 @@ export function Members() {
           </Button>
         )}
       </PageTitle>
-      <section className="panel">
-        <Filters {...f} statuses={memberStatuses} />
-        <LoadState {...r} variant="table">
-          <DataTable
-            data={r.data}
-            page={f.page}
-            setPage={f.setPage}
-            columns={[
-              { key: "name", title: "THÀNH VIÊN", render: rowName },
-              { key: "member_code", title: "MÃ THÀNH VIÊN" },
-              { key: "department_name", title: "BAN / NHÓM" },
-              { key: "position_name", title: "CHỨC VỤ" },
-              {
-                key: "join_date",
-                title: "GIA NHẬP",
-                render: (r) => dateText(r.join_date),
-              },
-              {
-                key: "member_status",
-                title: "TRẠNG THÁI",
-                render: (r) => <Badge value={r.member_status} />,
-              },
-              {
-                key: "actions",
-                title: "",
-                render: (r) => (
-                  <div className="row-actions">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={"Xem hồ sơ " + r.full_name}
-                      onClick={() => setView(r.club_member_id)}
-                    >
-                      <UserRound size={17} />
-                    </Button>
-                    {can("OFFICER", "LEADER") && (
+
+      {isOfficerOrLeader && (
+        <Tabs
+          value={tab}
+          onValueChange={(v: any) => setTab(v)}
+          className="page-tabs mb-4"
+        >
+          <TabsList variant="line">
+            <TabsTrigger value="members">Danh sách thành viên</TabsTrigger>
+            <TabsTrigger value="requests">
+              Đơn xin gia nhập
+              {Number(pendingRequests.data?.total) > 0 && (
+                <span className="tab-count">
+                  {pendingRequests.data.total}
+                </span>
+              )}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
+
+      {tab === "members" ? (
+        <section className="panel">
+          <Filters {...f} statuses={memberStatuses} />
+          <LoadState {...r} variant="table">
+            <DataTable
+              data={r.data}
+              page={f.page}
+              setPage={f.setPage}
+              columns={[
+                { key: "name", title: "THÀNH VIÊN", render: rowName },
+                { key: "member_code", title: "MÃ THÀNH VIÊN" },
+                { key: "department_name", title: "BAN / NHÓM" },
+                { key: "position_name", title: "CHỨC VỤ" },
+                {
+                  key: "join_date",
+                  title: "GIA NHẬP",
+                  render: (r) => dateText(r.join_date),
+                },
+                {
+                  key: "member_status",
+                  title: "TRẠNG THÁI",
+                  render: (r) => <Badge value={r.member_status} />,
+                },
+                {
+                  key: "actions",
+                  title: "",
+                  render: (r) => (
+                    <div className="row-actions">
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label={"Sửa " + r.full_name}
-                        onClick={() => setEditing(r)}
+                        aria-label={"Xem hồ sơ " + r.full_name}
+                        onClick={() => setView(r.club_member_id)}
                       >
-                        <Pencil size={17} />
+                        <UserRound size={17} />
                       </Button>
-                    )}
-                  </div>
-                ),
-              },
-            ]}
+                      {can("OFFICER", "LEADER") && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={"Sửa " + r.full_name}
+                          onClick={() => setEditing(r)}
+                        >
+                          <Pencil size={17} />
+                        </Button>
+                      )}
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          </LoadState>
+        </section>
+      ) : (
+        <section className="panel">
+          <Filters
+            q={reqFilter.q}
+            setQ={reqFilter.setQ}
+            status={reqFilter.status}
+            setStatus={reqFilter.setStatus}
+            statuses={["PENDING", "APPROVED", "REJECTED"]}
           />
-        </LoadState>
-      </section>
+          <LoadState {...reqResource} variant="table">
+            <DataTable
+              data={reqResource.data}
+              page={reqFilter.page}
+              setPage={reqFilter.setPage}
+              columns={[
+                {
+                  key: "student",
+                  title: "SINH VIÊN",
+                  render: (r: Row) => (
+                    <div className="person-cell">
+                      <Avatar name={r.full_name} />
+                      <div>
+                        <strong>{r.full_name}</strong>
+                        <small>{r.student_code || r.email || r.username}</small>
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  key: "faculty",
+                  title: "KHOA / LỚP",
+                  render: (r: Row) => (
+                    <span>
+                      {r.faculty || "—"}
+                      {r.class_name ? ` · ${r.class_name}` : ""}
+                    </span>
+                  ),
+                },
+                {
+                  key: "contact",
+                  title: "LIÊN HỆ",
+                  render: (r: Row) => (
+                    <div className="text-xs leading-relaxed">
+                      <div>{r.email || "—"}</div>
+                      <div className="text-muted">{r.phone || ""}</div>
+                    </div>
+                  ),
+                },
+                {
+                  key: "message",
+                  title: "LỜI NHẮN / NGUYỆN VỌNG",
+                  render: (r: Row) => (
+                    <span
+                      className="line-clamp-2 max-w-xs text-xs"
+                      title={r.message || ""}
+                    >
+                      {r.message || "—"}
+                    </span>
+                  ),
+                },
+                {
+                  key: "created_at",
+                  title: "NGÀY NỘP",
+                  render: (r: Row) => dateText(r.created_at, true),
+                },
+                {
+                  key: "status",
+                  title: "TRẠNG THÁI",
+                  render: (r: Row) => <Badge value={r.status} />,
+                },
+                {
+                  key: "actions",
+                  title: "",
+                  render: (r: Row) =>
+                    r.status === "PENDING" ? (
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={() => setApproveModal(r)}
+                        >
+                          Duyệt
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setRejectModal(r)}
+                        >
+                          Từ chối
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted">
+                        {r.reviewer_name
+                          ? `${r.status === "APPROVED" ? "Duyệt" : "Từ chối"}: ${r.reviewer_name}`
+                          : "—"}
+                      </span>
+                    ),
+                },
+              ]}
+            />
+          </LoadState>
+        </section>
+      )}
+
+      {approveModal && (
+        <Dialog open onOpenChange={(v) => !v && setApproveModal(null)}>
+          <DialogContent className="editor-dialog">
+            <DialogHeader>
+              <DialogTitle>Duyệt đơn gia nhập câu lạc bộ</DialogTitle>
+              <DialogDescription>
+                Phê duyệt sinh viên <strong>{approveModal.full_name}</strong> (
+                {approveModal.student_code || approveModal.email}) vào câu lạc
+                bộ.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {approveModal.message && (
+                <div className="bg-muted p-3.5 rounded-xl text-sm">
+                  <span className="text-muted block text-xs mb-1 font-medium">
+                    Lời nhắn của sinh viên:
+                  </span>
+                  <p className="italic font-normal">
+                    "{approveModal.message}"
+                  </p>
+                </div>
+              )}
+              <div className="field">
+                <label htmlFor="dept-select">Phân ban / nhóm sinh hoạt</label>
+                <SelectBox
+                  label="Chọn ban / nhóm"
+                  value={selectedDept}
+                  onChange={setSelectedDept}
+                  options={[
+                    { value: "Ban Thành viên", label: "Ban Thành viên (Chung)" },
+                    { value: "Ban Chuyên môn", label: "Ban Chuyên môn / Học thuật" },
+                    { value: "Ban Kỹ thuật", label: "Ban Kỹ thuật / Dự án" },
+                    { value: "Ban Truyền thông", label: "Ban Truyền thông & Báo chí" },
+                    { value: "Ban Sự kiện", label: "Ban Sự kiện & Hoạt động" },
+                    { value: "Ban Đối ngoại", label: "Ban Đối ngoại & Tài trợ" },
+                  ]}
+                />
+              </div>
+            </div>
+            <div className="editor-footer">
+              <Button
+                variant="outline"
+                onClick={() => setApproveModal(null)}
+              >
+                Hủy
+              </Button>
+              <Button
+                onClick={async () => {
+                  await mutate(
+                    "join-requests/" + approveModal.request_id,
+                    {
+                      status: "APPROVED",
+                      department_name: selectedDept,
+                    },
+                    "PATCH",
+                  );
+                  toast.success("Đã duyệt sinh viên vào câu lạc bộ!");
+                  setApproveModal(null);
+                  refresh();
+                }}
+              >
+                Xác nhận kết nạp
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {rejectModal && (
+        <Confirm
+          title="Từ chối đơn gia nhập?"
+          description={`Bạn có chắc muốn từ chối đơn của sinh viên ${rejectModal.full_name} (${rejectModal.student_code || rejectModal.email})?`}
+          reason={true}
+          onClose={() => setRejectModal(null)}
+          onConfirm={async (reason: string) => {
+            await mutate(
+              "join-requests/" + rejectModal.request_id,
+              {
+                status: "REJECTED",
+                reason,
+              },
+              "PATCH",
+            );
+            toast.success("Đã từ chối đơn đăng ký.");
+            setRejectModal(null);
+            refresh();
+          }}
+        />
+      )}
       {editing && (
         <Editor
           title={
@@ -973,3 +1212,200 @@ export function Audit() {
     </>
   );
 }
+
+export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
+  const { session, switchClub, mutate, refresh } = useApp();
+  const r = useResource("clubs");
+  const [applyingClub, setApplyingClub] = useState<Row | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <>
+      <PageTitle
+        eyebrow="CÁC CÂU LẠC BỘ"
+        title="Khám phá các Câu lạc bộ"
+        description="Tìm hiểu các câu lạc bộ trong trường và đăng ký tham gia sinh hoạt."
+      />
+
+      {onboarding && (
+        <div className="panel p-6 mb-6 bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-200">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-emerald-600 text-white rounded-2xl shadow-sm">
+              <Compass size={28} />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-emerald-950 mb-1">
+                Chào mừng bạn đến với Clubspace! 🎉
+              </h2>
+              <p className="text-sm text-emerald-800 leading-relaxed">
+                Bạn hiện chưa là thành viên của câu lạc bộ nào. Hãy khám phá các câu lạc bộ dưới đây và bấm <strong>"Đăng ký tham gia"</strong> để bắt đầu sinh hoạt cùng các bạn sinh viên nhé!
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <LoadState {...r} variant="cards">
+        <div className="club-cards">
+          {r.data?.rows.map((c: Row) => (
+            <section className="panel club-card" key={c.club_id}>
+              <span className="club-card-icon">
+                <Building2 />
+              </span>
+              <div className="flex items-center gap-1.5 mb-2">
+                <Badge value={c.club_status} />
+                {c.is_member && (
+                  <span className="status status-ACTIVE">
+                    <span className="status-dot" />
+                    Thành viên
+                  </span>
+                )}
+              </div>
+              <h2>{c.club_name}</h2>
+              <p>{c.description || "Chưa có mô tả cho câu lạc bộ này."}</p>
+              <small>
+                {c.club_code} · {c.active_members_count ?? 0} thành viên · Thành lập {dateText(c.founded_date)}
+              </small>
+              <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
+                {c.is_member ? (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => switchClub(c.club_id, "dashboard")}
+                  >
+                    Vào không gian CLB <ArrowUpRight size={15} />
+                  </Button>
+                ) : c.join_request?.status === "PENDING" ? (
+                  <div className="flex items-center justify-between w-full text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-xl border border-amber-200">
+                    <span className="inline-flex items-center gap-1 font-medium">
+                      <Clock size={14} /> Đơn đang chờ CLB duyệt
+                    </span>
+                    <span className="text-muted text-[11px]">
+                      {dateText(c.join_request.created_at)}
+                    </span>
+                  </div>
+                ) : c.join_request?.status === "REJECTED" ? (
+                  <div className="flex flex-col gap-2 w-full">
+                    <div className="text-xs text-rose-700 bg-rose-50 px-3 py-2 rounded-xl border border-rose-200">
+                      <strong>Đơn trước bị từ chối:</strong> {c.join_request.review_reason || "Chưa đạt tiêu chí"}
+                    </div>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => {
+                        setApplyingClub(c);
+                        setMessage("");
+                      }}
+                    >
+                      Đăng ký lại
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="default"
+                    className="w-full"
+                    onClick={() => {
+                      setApplyingClub(c);
+                      setMessage("");
+                    }}
+                  >
+                    Đăng ký tham gia
+                  </Button>
+                )}
+              </div>
+            </section>
+          ))}
+        </div>
+      </LoadState>
+
+      {applyingClub && (
+        <Dialog
+          open
+          onOpenChange={(open) => !open && !busy && setApplyingClub(null)}
+        >
+          <DialogContent className="editor-dialog">
+            <DialogHeader>
+              <DialogTitle>
+                Đăng ký tham gia {applyingClub.club_name}
+              </DialogTitle>
+              <DialogDescription>
+                Đơn đăng ký của bạn sẽ được gửi tới Ban chủ nhiệm câu lạc bộ để xét duyệt.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="grid grid-cols-2 gap-3 text-sm bg-muted/50 p-3.5 rounded-xl border border-border">
+                <div>
+                  <span className="text-muted block text-xs">Họ và tên</span>
+                  <strong>{session.user.full_name}</strong>
+                </div>
+                <div>
+                  <span className="text-muted block text-xs">Mã sinh viên</span>
+                  <strong>{session.user.student_code || "—"}</strong>
+                </div>
+                <div>
+                  <span className="text-muted block text-xs">Email</span>
+                  <span>{session.user.email || "—"}</span>
+                </div>
+                <div>
+                  <span className="text-muted block text-xs">Khoa / Lớp</span>
+                  <span>
+                    {session.user.faculty || "—"} · {session.user.class_name || "—"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="field">
+                <label htmlFor="join-message">
+                  Lời nhắn / Nguyện vọng & Ban mong muốn tham gia
+                </label>
+                <textarea
+                  id="join-message"
+                  rows={4}
+                  value={message}
+                  maxLength={1000}
+                  placeholder="Ví dụ: Em muốn ứng tuyển vào Ban Kỹ thuật / Ban Truyền thông. Em có kỹ năng tổ chức sự kiện..."
+                  onChange={(e) => setMessage(e.target.value)}
+                  className="w-full rounded-xl border border-input p-3 text-sm"
+                />
+                <small className="text-muted">
+                  Giới thiệu ngắn gọn lý do bạn muốn tham gia CLB này.
+                </small>
+              </div>
+            </div>
+            <div className="editor-footer">
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => setApplyingClub(null)}
+              >
+                Hủy
+              </Button>
+              <Button
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await mutate("clubs/" + applyingClub.club_id + "/join", {
+                      message,
+                    });
+                    toast.success("Đã gửi đơn đăng ký tham gia câu lạc bộ!");
+                    setApplyingClub(null);
+                    refresh();
+                  } catch (e: any) {
+                    toast.error(e.message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy && <Loader2 className="animate-spin" size={16} />} Gửi đơn đăng ký
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
+  );
+}
+

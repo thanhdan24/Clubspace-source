@@ -949,3 +949,149 @@ test("Event scope restricts registration: INTERNAL allows only club members, PUB
   assert.equal(regInternalAgain.status, 403);
   assert.match(regInternalAgain.data.error, /nội bộ/);
 });
+test("Club join application and review workflow: submit, duplicate prevention, review permissions, approval, and rejection", async () => {
+  // Create a new applicant account
+  const applicant = {
+    student_code: "APP_00001",
+    username: "applicant_user",
+    password: "Password@123",
+    full_name: "Nguyen Van A",
+    email: "applicant_a@ptit.edu.vn",
+  };
+  const regUser = await call("ADMIN", "accounts", "POST", applicant);
+  assert.equal(regUser.status, 201);
+  const applicantUserId = regUser.data.user_id;
+
+  const loginRes = await call("", "auth/login", "POST", {
+    username: applicant.username,
+    password: applicant.password,
+  });
+  assert.equal(loginRes.status, 200);
+  const applicantCookie = loginRes.cookie!.split(";")[0];
+
+  const appCall = async (
+    path: string,
+    method = "GET",
+    data?: any,
+    club = 0,
+  ) => {
+    const req = new Request(
+      `http://test.local/api/${path}${path.includes("?") ? "&" : "?"}club=${club}`,
+      {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: applicantCookie,
+        },
+        body: data === undefined ? undefined : JSON.stringify(data),
+      },
+    );
+    const res = await handleApi(req, db, env);
+    return { status: res.status, data: await res.json().catch(() => null) };
+  };
+
+  // 1. Applicant views clubs list
+  const clubsList = await appCall("clubs", "GET");
+  assert.equal(clubsList.status, 200);
+  assert.ok(Array.isArray(clubsList.data.rows));
+  assert.ok(clubsList.data.rows.length > 0);
+
+  // 2. Submit join request to Club 1
+  const submitRes = await appCall("clubs/1/join", "POST", {
+    message: "Em muốn tham gia Ban Kỹ thuật để phát triển dự án.",
+  });
+  assert.equal(submitRes.status, 201);
+  const requestId = submitRes.data.request_id;
+  assert.ok(requestId > 0);
+
+  // 3. Prevent duplicate while pending
+  const dupRes = await appCall("clubs/1/join", "POST", {
+    message: "Thử gửi lại lần 2",
+  });
+  assert.equal(dupRes.status, 400);
+  assert.match(dupRes.data.error, /đang chờ xét duyệt/);
+
+  // 4. Regular member cannot review join requests
+  const memberReview = await call(
+    "MEMBER",
+    `join-requests/${requestId}`,
+    "PATCH",
+    { status: "APPROVED" },
+    1,
+  );
+  assert.equal(memberReview.status, 403);
+
+  // 5. Officer reviews and approves join request
+  const officerApprove = await call(
+    "OFFICER",
+    `join-requests/${requestId}`,
+    "PATCH",
+    {
+      status: "APPROVED",
+      department_name: "Ban Kỹ thuật",
+      reason: "Đạt yêu cầu phỏng vấn",
+    },
+    1,
+  );
+  assert.equal(officerApprove.status, 200);
+
+  // 6. Verify applicant is now an active member in Club 1
+  const newMember = sql(
+    "SELECT * FROM CLUB_MEMBERS WHERE club_id=1 AND user_id=?",
+    applicantUserId,
+  );
+  assert.equal(newMember.member_status, "ACTIVE");
+  assert.equal(newMember.department_name, "Ban Kỹ thuật");
+  assert.equal(newMember.position_name, "Thành viên");
+
+  // Verify role MEMBER in USER_ROLES for Club 1
+  const userRole = sql(
+    "SELECT ur.*, r.role_code FROM USER_ROLES ur JOIN ROLES r ON r.role_id=ur.role_id WHERE ur.club_id=1 AND ur.user_id=? AND ur.active_flag=1",
+    applicantUserId,
+  );
+  assert.equal(userRole.role_code, "MEMBER");
+
+  // 7. Now applicant cannot re-apply to Club 1
+  const reApply = await appCall("clubs/1/join", "POST", { message: "Xin vào lại" });
+  assert.equal(reApply.status, 400);
+  assert.match(reApply.data.error, /thành viên chính thức/);
+
+  // 8. Rejection flow test: Create another applicant and test rejection
+  const applicant2 = {
+    student_code: "APP_00002",
+    username: "applicant_user2",
+    password: "Password@123",
+    full_name: "Tran Van B",
+    email: "applicant_b@ptit.edu.vn",
+  };
+  const regUser2 = await call("ADMIN", "accounts", "POST", applicant2);
+  const loginRes2 = await call("", "auth/login", "POST", {
+    username: applicant2.username,
+    password: applicant2.password,
+  });
+  const cookie2 = loginRes2.cookie!.split(";")[0];
+
+  const app2Req = new Request("http://test.local/api/clubs/1/join?club=0", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie2 },
+    body: JSON.stringify({ message: "Đăng ký xin gia nhập" }),
+  });
+  const submitRes2: any = await (await handleApi(app2Req, db, env)).json();
+
+  // Leader rejects join request
+  const rejectRes = await call(
+    "LEADER",
+    `join-requests/${submitRes2.request_id}`,
+    "PATCH",
+    { status: "REJECTED", reason: "Chưa đạt chỉ tiêu đợt tuyển này" },
+    1,
+  );
+  assert.equal(rejectRes.status, 200);
+
+  const reqRecord = sql(
+    "SELECT * FROM CLUB_JOIN_REQUESTS WHERE request_id=?",
+    submitRes2.request_id,
+  );
+  assert.equal(reqRecord.status, "REJECTED");
+  assert.equal(reqRecord.review_reason, "Chưa đạt chỉ tiêu đợt tuyển này");
+});

@@ -117,7 +117,23 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
     ["events", "finance", "members"].includes(type),
     "Loại báo cáo không hợp lệ.",
   );
-  fail(c.club > 0, "Vui lòng chọn câu lạc bộ để xem dữ liệu.", 400);
+  if (c.club <= 0) {
+    if (path === "dashboard") {
+      return json({
+        no_club: true,
+        summary: {
+          total_members: 0,
+          open_events: 0,
+          pending_approvals: 0,
+          current_balance: 0,
+        },
+        upcoming: [],
+        timeline: [],
+        finance: [],
+      });
+    }
+    fail(false, "Vui lòng chọn câu lạc bộ để xem dữ liệu.", 400);
+  }
 
   // Thành viên thường chỉ xem dữ liệu cá nhân.
   if (!isStaff(c)) {

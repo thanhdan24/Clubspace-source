@@ -213,6 +213,10 @@ export async function fetchApi(path: string, club: number, options: any = {}) {
 // ----------------------------------------------------
 // Client-side In-Memory Cache with Stale-While-Revalidate (SWR)
 // ----------------------------------------------------
+// Client-side In-Memory Cache with Pure SWR (Always Revalidate)
+// Chiến lược: Hiển thị ngay tức thì từ cache (0ms), đồng thời LUÔN làm mới
+// ngầm từ máy chủ ở mọi lượt điều hướng và khi quay lại tab trình duyệt.
+// ----------------------------------------------------
 interface CacheEntry {
   data: any;
   timestamp: number;
@@ -221,12 +225,12 @@ interface CacheEntry {
 
 const resourceCache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<any>>();
-const CACHE_TTL_MS = 2 * 60 * 1000; // 2 phút cache tươi
+const FOCUS_THROTTLE_MS = 4000; // Throttle 4s để tránh dồn request khi người dùng Alt-Tab liên tục
 
 export function getCachedResource(key: string, currentVersion: number) {
   const entry = resourceCache.get(key);
   if (!entry) return null;
-  // Khi version thay đổi (do có mutation tạo/sửa/xóa), coi cache là stale để revalidate
+  // Khi version thay đổi (sau thao tác mutation tạo/sửa/xóa), bỏ qua cache cũ để tải dữ liệu mới
   if (entry.version !== currentVersion) return null;
   return entry;
 }
@@ -278,13 +282,12 @@ export function useResource(path: string | null) {
   const { club, version } = useApp();
   const cacheKey = path ? `${club}:${path}` : null;
   const cached = cacheKey ? getCachedResource(cacheKey, version) : null;
-  const isFresh = cached ? Date.now() - cached.timestamp < CACHE_TTL_MS : false;
 
+  // Nếu có dữ liệu trong cache: render ngay lập tức (0ms), không để người dùng chờ skeleton
   const [data, setData] = useState<any>(cached ? cached.data : null);
   const [error, setError] = useState("");
-  // Nếu đã có cache, không bao giờ hiện màn hình trắng skeleton -> Tải tức thì 0ms!
   const [loading, setLoading] = useState<boolean>(!cached && !!path);
-  const [revalidating, setRevalidating] = useState<boolean>(!isFresh && !!path);
+  const [revalidating, setRevalidating] = useState<boolean>(!!path);
 
   useEffect(() => {
     let active = true;
@@ -296,56 +299,73 @@ export function useResource(path: string | null) {
 
     const key = `${club}:${path}`;
     const currentCached = getCachedResource(key, version);
-    const fresh = currentCached
-      ? Date.now() - currentCached.timestamp < CACHE_TTL_MS
-      : false;
 
+    // 1. Render tức thì dữ liệu cache nếu có (tránh hiện tượng chớp màn hình / layout shift)
     if (currentCached) {
       setData(currentCached.data);
       setLoading(false);
-      if (fresh) {
-        setRevalidating(false);
-        return;
-      }
     } else {
       setLoading(true);
     }
 
+    // 2. LUÔN LUÔN kích hoạt làm mới ngầm (Always Revalidate)
     setRevalidating(true);
     setError("");
 
-    // Request Deduplication: Nếu request cùng key đang chạy thì tái sử dụng
-    let req = inFlightRequests.get(key);
-    if (!req) {
-      req = fetchApi(path, club);
-      inFlightRequests.set(key, req);
-      req.finally(() => inFlightRequests.delete(key));
-    }
+    let lastFetchTime = Date.now();
 
-    req
-      .then((d) => {
-        if (active) {
-          setCachedResource(key, d, version);
-          setData(d);
-          setError("");
-        }
-      })
-      .catch((e) => {
-        if (active) {
-          if (!currentCached) {
-            setError(e.message);
+    const executeRevalidation = () => {
+      // Request Deduplication: Nếu cùng 1 endpoint đang fetch dở thì dùng chung Promise
+      let req = inFlightRequests.get(key);
+      if (!req) {
+        req = fetchApi(path, club);
+        inFlightRequests.set(key, req);
+        req.finally(() => inFlightRequests.delete(key));
+      }
+
+      req
+        .then((d) => {
+          if (active) {
+            setCachedResource(key, d, version);
+            setData(d);
+            setError("");
           }
+        })
+        .catch((e) => {
+          if (active) {
+            // Nếu đã có cache thì giữ giao diện nguyên vẹn, không gián đoạn người dùng
+            if (!currentCached) {
+              setError(e.message);
+            }
+          }
+        })
+        .finally(() => {
+          if (active) {
+            setLoading(false);
+            setRevalidating(false);
+            lastFetchTime = Date.now();
+          }
+        });
+    };
+
+    executeRevalidation();
+
+    // 3. Tự động kiểm tra làm mới khi người dùng quay lại tab trình duyệt (Focus Revalidation)
+    const handleFocus = () => {
+      if (document.visibilityState === "visible") {
+        if (Date.now() - lastFetchTime > FOCUS_THROTTLE_MS) {
+          executeRevalidation();
         }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
-          setRevalidating(false);
-        }
-      });
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
 
     return () => {
       active = false;
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
     };
   }, [path, club, version]);
 

@@ -183,7 +183,7 @@ export async function context(
       403,
     );
   const accountOrSettings =
-    /^\/api\/(club|clubs|profile(?:\/password)?|accounts(?:\/\d+)?|roles|role-catalog)\/?$/.test(
+    /^\/api\/(club|clubs(?:\/\d+\/join)?|my-join-requests|join-requests(?:\/\d+)?|profile(?:\/password)?|accounts(?:\/\d+)?|roles|role-catalog)\/?$/.test(
       new URL(req.url).pathname,
     );
   if (club && req.method !== "GET" && !accountOrSettings && !isPublicEventAccess) {

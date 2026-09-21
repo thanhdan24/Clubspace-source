@@ -227,7 +227,25 @@ CREATE TABLE `USER_ROLES` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `UQ_USER_ROLES_scope` ON `USER_ROLES` (`user_id`,`role_id`,`club_id`);--> statement-breakpoint
-CREATE INDEX `IX_USER_ROLES_user_club_active` ON `USER_ROLES` (`user_id`,`club_id`,`active_flag`);
+CREATE INDEX `IX_USER_ROLES_user_club_active` ON `USER_ROLES` (`user_id`,`club_id`,`active_flag`);--> statement-breakpoint
+CREATE TABLE `CLUB_JOIN_REQUESTS` (
+	`request_id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`club_id` integer NOT NULL,
+	`user_id` integer NOT NULL,
+	`message` text,
+	`status` text DEFAULT 'PENDING' NOT NULL,
+	`reviewed_by` integer,
+	`reviewed_at` text,
+	`review_reason` text,
+	`created_at` text NOT NULL,
+	`updated_at` text,
+	FOREIGN KEY (`club_id`) REFERENCES `CLUBS`(`club_id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`user_id`) REFERENCES `USERS`(`user_id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`reviewed_by`) REFERENCES `USERS`(`user_id`) ON UPDATE no action ON DELETE no action,
+	CONSTRAINT "CK_CLUB_JOIN_REQUESTS_status" CHECK(("CLUB_JOIN_REQUESTS"."status"='PENDING' OR "CLUB_JOIN_REQUESTS"."status"='APPROVED' OR "CLUB_JOIN_REQUESTS"."status"='REJECTED'))
+);--> statement-breakpoint
+CREATE INDEX `IX_CJR_club_status` ON `CLUB_JOIN_REQUESTS` (`club_id`,`status`);--> statement-breakpoint
+CREATE INDEX `IX_CJR_user_id` ON `CLUB_JOIN_REQUESTS` (`user_id`);
 CREATE VIEW vw_club_fund_summary AS
 SELECT
     c.club_id,
