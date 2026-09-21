@@ -114,11 +114,10 @@ Mở trình duyệt truy cập: **`http://localhost:3001`**.
 components/club/       Các trang và thành phần nghiệp vụ (Events, Finance, Members, Dashboard)
 components/ui/         Thư viện UI Primitives (Shadcn/Radix UI)
 server/                Backend API, nghiệp vụ, xác thực và Prisma Database Adapter
-prisma/                Schema Prisma quản lý bảng, khóa ngoại, chỉ mục
+prisma/                Schema Prisma (schema.prisma) và dữ liệu mẫu (seed-data.json)
 scripts/               Script nạp dữ liệu Supabase (seed-supabase.ts)
-tests/                 Bộ test tự động API nghiệp vụ
+tests/                 Bộ test tự động API nghiệp vụ và test-schema.sql
 app/                   CSS dùng chung cho toàn bộ giao diện
-standalone/            Entrypoint React 19 / Vite
+standalone/            Entrypoint React / Vite
 docs/                  Tài liệu kỹ thuật và hướng dẫn Supabase Prisma
-database/              Dữ liệu JSON mẫu và DDL SQL gốc
 ```

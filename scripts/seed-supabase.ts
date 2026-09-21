@@ -122,9 +122,9 @@ async function main() {
       `[Supabase Seed] Cơ sở dữ liệu đã có ${userCount} người dùng. Bỏ qua bước nạp dữ liệu mẫu ban đầu.`,
     );
   } else {
-    console.log("[Supabase Seed] Đang đọc file database/imported-data.json...");
+    console.log("[Supabase Seed] Đang đọc file prisma/seed-data.json...");
     const rawData = await fs.readFile(
-      path.resolve("database/imported-data.json"),
+      path.resolve("prisma/seed-data.json"),
       "utf8",
     );
     const data = JSON.parse(rawData);

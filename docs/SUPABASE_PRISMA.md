@@ -57,7 +57,7 @@ pnpm db:seed:supabase
 ```
 *Lệnh này sẽ:*
 - Tạo 2 Views thống kê: `vw_club_fund_summary` và `vw_event_statistics`.
-- Nạp toàn bộ dữ liệu mẫu ban đầu từ `database/imported-data.json`.
+- Nạp toàn bộ dữ liệu mẫu ban đầu từ `prisma/seed-data.json`.
 - Tự động đồng bộ các Auto-increment sequences trong PostgreSQL.
 - Khởi tạo tài khoản quản trị hệ thống (`ADMIN`) theo cấu hình trong `.env`.
 
@@ -86,11 +86,3 @@ pnpm start
 ```
 Mở trình duyệt tại: `http://localhost:3001`.
 
----
-
-## 6. (Tùy chọn) Chạy SQL trực tiếp trên Supabase Dashboard
-
-Nếu bạn không muốn dùng CLI để push schema, dự án đã chuẩn bị sẵn file DDL hoàn chỉnh tại:
-- [`database/supabase/schema.sql`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/database/supabase/schema.sql)
-
-Bạn chỉ cần copy toàn bộ nội dung file này và paste vào mục **SQL Editor** trong Supabase Dashboard rồi nhấn **Run**.
