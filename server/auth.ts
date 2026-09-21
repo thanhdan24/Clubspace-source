@@ -41,7 +41,6 @@ export async function authenticate(db: Database, req: Request) {
 export type AuthEnv = Record<string, unknown> & {
   DEMO_MODE?: string;
   DEMO_PASSWORD?: string;
-  SQLSERVER_API_URL?: string;
 };
 export async function session(db: Database, req: Request, user: Row) {
   const token = crypto.randomUUID() + crypto.randomUUID();
@@ -64,9 +63,7 @@ export async function authRoute(
     return json({
       demo: env.DEMO_MODE === "true",
       database:
-        db.dialect === "sqlserver" || env.SQLSERVER_API_URL
-          ? "SQL Server"
-          : "D1",
+        db.dialect === "postgres" ? "Supabase PostgreSQL" : "Local",
     });
   if (path === "auth/login" && req.method === "POST") {
     const b = z

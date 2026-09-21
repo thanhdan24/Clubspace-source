@@ -42,7 +42,7 @@ export function stmt(db: Database, s: string, p: any[] = []) {
   return prepared;
 }
 function ifChanged(db: Database, s: Statement) {
-  if (db.dialect === "sqlserver" || db.dialect === "postgres") return s;
+  if (db.dialect === "postgres") return s;
   const source = statementSource.get(s)!;
   let sql = source.sql;
   if (/^INSERT/i.test(sql))

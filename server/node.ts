@@ -9,33 +9,14 @@ import { Prisma } from "@prisma/client";
 const port = Number(process.env.PORT || 3001),
   host = process.env.HOST || "127.0.0.1";
 
-const isSupabase = Boolean(
-  process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("[YOUR-PROJECT-REF]"),
-);
-
-let sqlPool: any = null;
-let SqlServerDatabaseClass: any = null;
-
-if (isSupabase) {
-  try {
-    await prisma.$connect();
-    await prisma.$queryRawUnsafe("SELECT 1 AS ok");
-    console.log("[Supabase/Prisma] Đã kết nối thành công tới Supabase (PostgreSQL).");
-  } catch (err: any) {
-    console.error("[Supabase/Prisma] Lỗi kết nối database:", err.message);
-    throw err;
-  }
-} else if (process.env.DB_SERVER) {
-  const mssql = await import("mssql");
-  const { SqlServerDatabase, connectionConfig } = await import("./sqlserver");
-  SqlServerDatabaseClass = SqlServerDatabase;
-  sqlPool = await new mssql.default.ConnectionPool(connectionConfig()).connect();
-  await sqlPool.request().query("SELECT 1 AS ok");
-  console.log("[SQL Server] Đã kết nối thành công tới SQL Server.");
-} else {
-  console.warn(
-    "[Database Warning] Chưa cấu hình DATABASE_URL (Supabase) hoặc DB_SERVER (SQL Server). Vui lòng cập nhật tệp .env.",
-  );
+try {
+  await prisma.$connect();
+  await prisma.$queryRawUnsafe("SELECT 1 AS ok");
+  console.log("[Supabase/Prisma] Đã kết nối thành công tới Supabase (PostgreSQL).");
+} catch (err: any) {
+  console.error("[Supabase/Prisma] Lỗi kết nối database:", err.message);
+  console.error("Vui lòng kiểm tra lại cấu hình DATABASE_URL trong tệp .env.");
+  throw err;
 }
 
 const uploadRoot = path.resolve(process.env.UPLOAD_DIR || "private-uploads");
@@ -106,64 +87,30 @@ const server = http.createServer(async (req, res) => {
       });
 
       let response: Response;
-
-      if (isSupabase) {
-        try {
-          response = await prisma.$transaction(
-            async (tx) => {
-              const db = new PrismaDatabase(tx);
-              const result = await handleApi(request, db, {
-                ...process.env,
-                DEMO_MODE: "false",
-                BUCKET: bucket,
-              });
-              if (result.status >= 400 && !url.includes("/auth/login")) {
-                throw new RollbackError(result);
-              }
-              return result;
-            },
-            {
-              isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-            },
-          );
-        } catch (e: any) {
-          if (e instanceof RollbackError) {
-            response = e.response;
-          } else {
-            throw e;
-          }
-        }
-      } else if (sqlPool) {
-        const mssql = await import("mssql");
-        const tx = new mssql.default.Transaction(sqlPool);
-        await tx.begin(mssql.default.ISOLATION_LEVEL.SERIALIZABLE);
-        try {
-          response = await handleApi(
-            request,
-            new SqlServerDatabaseClass(sqlPool, tx),
-            {
+      try {
+        response = await prisma.$transaction(
+          async (tx) => {
+            const db = new PrismaDatabase(tx);
+            const result = await handleApi(request, db, {
               ...process.env,
               DEMO_MODE: "false",
               BUCKET: bucket,
-            },
-          );
-          if (response.status >= 400 && !url.includes("/auth/login")) {
-            await tx.rollback();
-          } else {
-            await tx.commit();
-          }
-        } catch (e) {
-          await tx.rollback().catch(() => {});
+            });
+            if (result.status >= 400 && !url.includes("/auth/login")) {
+              throw new RollbackError(result);
+            }
+            return result;
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+      } catch (e: any) {
+        if (e instanceof RollbackError) {
+          response = e.response;
+        } else {
           throw e;
         }
-      } else {
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({
-            error: "Chưa cấu hình kết nối database trong file .env.",
-          }),
-        );
-        return;
       }
 
       res.writeHead(response.status, Object.fromEntries(response.headers));
@@ -195,7 +142,7 @@ const server = http.createServer(async (req, res) => {
       res.end(data);
     } catch {
       res.writeHead(404);
-      res.end("Không tìm thấy trang. Chạy pnpm build:standalone trước.");
+      res.end("Không tìm thấy trang. Chạy pnpm build trước.");
     }
   } catch (e: any) {
     console.error("[node-api]", e.message);
@@ -213,15 +160,14 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, host, () =>
   console.log(
-    `Clubspace server đang chạy trên ${host}:${port} (${isSupabase ? "Supabase PostgreSQL / Prisma" : "SQL Server"})`,
+    `Clubspace server đang chạy trên ${host}:${port} (Supabase PostgreSQL / Prisma)`,
   ),
 );
 
 for (const event of ["SIGINT", "SIGTERM"])
   process.on(event, async () => {
     server.close(async () => {
-      if (isSupabase) await prisma.$disconnect();
-      if (sqlPool) await sqlPool.close();
+      await prisma.$disconnect();
       process.exit(0);
     });
   });

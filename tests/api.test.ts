@@ -5,14 +5,15 @@ import fs from "node:fs";
 import { handleApi } from "../server/api";
 import { seedPreview } from "../server/seed";
 import { now } from "../server/core";
-import { convertSql } from "../server/sqlserver";
+import { convertSqlToPostgres } from "../server/prisma";
 const sqlite = new DatabaseSync(":memory:");
 sqlite.exec("PRAGMA foreign_keys=ON");
-for (const file of fs
-  .readdirSync("drizzle")
-  .filter((f) => f.endsWith(".sql"))
-  .sort())
-  sqlite.exec(fs.readFileSync("drizzle/" + file, "utf8"));
+const schemaSql = fs.readFileSync("tests/test-schema.sql", "utf8");
+for (const statement of schemaSql
+  .split("--> statement-breakpoint")
+  .filter((s) => s.trim())) {
+  sqlite.exec(statement);
+}
 class S {
   constructor(
     public query: string,
@@ -552,14 +553,14 @@ test("Pagination and SQL injection are handled as data", async () => {
   );
   assert.ok(sql("SELECT COUNT(*) n FROM USERS").n > 0);
 });
-test("SQL Server adapter binds parameters and converts pagination without user interpolation", () => {
-  const out = convertSql(
+test("Prisma adapter binds parameters and quotes table names without user interpolation", () => {
+  const out = convertSqlToPostgres(
     "SELECT * FROM USERS WHERE username=? ORDER BY user_id LIMIT ? OFFSET ?",
     ["x'; DROP TABLE USERS;--", 10, 20],
   );
   assert.equal(
     out.text,
-    "SELECT * FROM USERS WHERE username=@p0 ORDER BY user_id OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY",
+    'SELECT * FROM "USERS" WHERE username=$1 ORDER BY user_id LIMIT $2 OFFSET $3',
   );
   assert.equal(out.parameters[0], "x'; DROP TABLE USERS;--");
 });
