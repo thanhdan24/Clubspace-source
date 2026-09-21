@@ -2,6 +2,7 @@ minimumReleaseAge: 10080
 minimumReleaseAgeIgnoreMissingTime: false
 trustLockfile: false
 strictDepBuilds: false
+dangerouslyAllowAllBuilds: true
 allowBuilds:
   '@parcel/watcher': true
   '@prisma/client': true
