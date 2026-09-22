@@ -2,6 +2,7 @@ import { ZodError } from "zod";
 import { ApiError, fail, json, has, isStaff, type Database } from "./core";
 import { authRoute, context } from "./auth";
 import { peopleRoute } from "./people";
+import { joinRequestsRoute } from "./join-requests";
 import { eventsRoute } from "./events";
 import { financeRoute } from "./finance";
 import { reportsRoute } from "./reports";
@@ -106,6 +107,7 @@ export async function handleApi(
       });
     }
     for (const handler of [
+      joinRequestsRoute,
       peopleRoute,
       eventsRoute,
       financeRoute,

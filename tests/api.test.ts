@@ -807,3 +807,277 @@ test("Evidence upload validates content and restricts download to club staff", a
   assert.match(proof.headers.get("content-disposition")!, /^attachment/);
   assert.equal(await proof.text(), "%PDF-1.4 test");
 });
+
+test("Unassigned users discover clubs, request membership, and gain access only after review", async () => {
+  assert.equal(
+    (
+      await call("ADMIN", "accounts", "POST", {
+        username: "join_applicant",
+        full_name: "Người xin tham gia",
+        password: "Join-test-password-123",
+      })
+    ).status,
+    201,
+  );
+  const login = await call(
+    "",
+    "auth/login",
+    "POST",
+    { username: "join_applicant", password: "Join-test-password-123" },
+    0,
+  );
+  assert.equal(login.status, 200);
+  cookies.APPLICANT = login.cookie!.split(";")[0];
+  const userId = sql(
+    "SELECT user_id FROM USERS WHERE username='join_applicant'",
+  ).user_id;
+  assert.equal(
+    (await call("APPLICANT", "me", "GET", undefined, 0)).data.clubs.length,
+    0,
+  );
+  assert.equal(
+    (await call("", "discover-clubs", "GET", undefined, 0)).status,
+    401,
+  );
+  const directory = await call(
+    "APPLICANT",
+    "discover-clubs",
+    "GET",
+    undefined,
+    0,
+  );
+  assert.equal(directory.status, 200);
+  assert.ok(directory.data.rows.some((r: any) => r.club_id === 1));
+  assert.equal(
+    (await call("APPLICANT", "events", "GET", undefined, 1)).status,
+    403,
+  );
+  assert.equal(
+    (
+      await call(
+        "APPLICANT",
+        "discover-clubs/1/join",
+        "POST",
+        { message: "Muốn học hỏi", user_id: 1, role_code: "ADMIN" },
+        0,
+      )
+    ).status,
+    201,
+  );
+  assert.equal(
+    (await call("APPLICANT", "discover-clubs/1/join", "POST", {}, 0)).status,
+    409,
+  );
+  const request = sql(
+    "SELECT * FROM CLUB_JOIN_REQUESTS WHERE club_id=1 AND user_id=?",
+    userId,
+  );
+  assert.equal(request.request_status, "PENDING");
+  assert.equal(
+    sql("SELECT club_member_id FROM CLUB_MEMBERS WHERE user_id=?", userId),
+    undefined,
+  );
+  assert.equal(
+    (await call("APPLICANT", "join-requests", "GET", undefined, 0)).status,
+    403,
+  );
+  assert.equal(
+    (
+      await call(
+        "APPLICANT",
+        `join-requests/${request.request_id}`,
+        "PATCH",
+        { status: "APPROVED" },
+        0,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await call(
+        "OFFICER",
+        `join-requests/${request.request_id}`,
+        "PATCH",
+        { status: "APPROVED" },
+        2,
+      )
+    ).status,
+    403,
+  );
+  assert.ok(
+    (await call("LEADER", "join-requests")).data.rows.some(
+      (r: any) => r.user_id === userId,
+    ),
+  );
+  assert.equal(
+    (
+      await call("LEADER", `join-requests/${request.request_id}`, "PATCH", {
+        status: "APPROVED",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await call("OFFICER", `join-requests/${request.request_id}`, "PATCH", {
+        status: "APPROVED",
+      })
+    ).status,
+    409,
+  );
+  const session = await call("APPLICANT", "me", "GET", undefined, 1);
+  assert.deepEqual(session.data.roles, ["MEMBER"]);
+  assert.equal(
+    sql(
+      "SELECT COUNT(*) n FROM CLUB_MEMBERS WHERE club_id=1 AND user_id=?",
+      userId,
+    ).n,
+    1,
+  );
+  assert.equal(
+    (await call("APPLICANT", "events", "GET", undefined, 1)).status,
+    200,
+  );
+  assert.equal(
+    (await call("APPLICANT", "discover-clubs/1/join", "POST", {}, 0)).status,
+    409,
+  );
+});
+
+test("Join requests support rejection and resubmission, block inactive clubs, and roll back failed approval", async () => {
+  const userId = sql(
+    "SELECT user_id FROM USERS WHERE username='join_applicant'",
+  ).user_id;
+  assert.equal(
+    (await call("APPLICANT", "discover-clubs/2/join", "POST", {}, 1)).status,
+    201,
+  );
+  const request = sql(
+    "SELECT * FROM CLUB_JOIN_REQUESTS WHERE club_id=2 AND user_id=?",
+    userId,
+  );
+  assert.equal(
+    (
+      await call(
+        "LEADER",
+        `join-requests/${request.request_id}`,
+        "PATCH",
+        { status: "APPROVED" },
+        1,
+      )
+    ).status,
+    404,
+  );
+  // Assign the reviewer explicitly in the second club to test scope isolation.
+  assert.equal(
+    (
+      await call(
+        "ADMIN",
+        "roles",
+        "POST",
+        { user_id: 10002, role_code: "LEADER", active_flag: 1 },
+        2,
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await call(
+        "LEADER",
+        `join-requests/${request.request_id}`,
+        "PATCH",
+        { status: "REJECTED", review_note: "Bổ sung giới thiệu" },
+        2,
+      )
+    ).status,
+    200,
+  );
+  const directory = await call(
+    "APPLICANT",
+    "discover-clubs",
+    "GET",
+    undefined,
+    1,
+  );
+  assert.equal(
+    directory.data.rows.find((r: any) => r.club_id === 2).review_note,
+    "Bổ sung giới thiệu",
+  );
+  assert.equal(
+    (
+      await call(
+        "APPLICANT",
+        "discover-clubs/2/join",
+        "POST",
+        { message: "Đã bổ sung" },
+        1,
+      )
+    ).status,
+    201,
+  );
+  sqlite.exec("UPDATE CLUBS SET club_status='INACTIVE' WHERE club_id=2");
+  assert.equal(
+    (await call("APPLICANT", "discover-clubs/2/join", "POST", {}, 1)).status,
+    409,
+  );
+  assert.equal(
+    (
+      await call(
+        "LEADER",
+        `join-requests/${request.request_id}`,
+        "PATCH",
+        { status: "APPROVED" },
+        2,
+      )
+    ).status,
+    403,
+  );
+  sqlite.exec("UPDATE CLUBS SET club_status='ACTIVE' WHERE club_id=2");
+  sqlite.exec(
+    `CREATE TRIGGER test_join_failure BEFORE INSERT ON CLUB_MEMBERS WHEN NEW.user_id=${userId} AND NEW.club_id=2 BEGIN SELECT RAISE(ABORT,'INVALID_STATE_TEST_JOIN'); END`,
+  );
+  try {
+    assert.equal(
+      (
+        await call(
+          "LEADER",
+          `join-requests/${request.request_id}`,
+          "PATCH",
+          { status: "APPROVED" },
+          2,
+        )
+      ).status,
+      409,
+    );
+    assert.equal(
+      sql(
+        "SELECT request_status FROM CLUB_JOIN_REQUESTS WHERE request_id=?",
+        request.request_id,
+      ).request_status,
+      "PENDING",
+    );
+    assert.equal(
+      sql(
+        "SELECT user_role_id FROM USER_ROLES WHERE club_id=2 AND user_id=?",
+        userId,
+      ),
+      undefined,
+    );
+  } finally {
+    sqlite.exec("DROP TRIGGER test_join_failure");
+  }
+  assert.equal(
+    (
+      await call(
+        "LEADER",
+        `join-requests/${request.request_id}`,
+        "PATCH",
+        { status: "APPROVED" },
+        2,
+      )
+    ).status,
+    200,
+  );
+});

@@ -213,3 +213,18 @@ export const USERS: any = sqliteTable("USERS", {
 export const AUTH_SESSIONS = sqliteTable("AUTH_SESSIONS", { token_hash:text().primaryKey(), user_id:integer().notNull().references(()=>USERS.user_id), expires_at:integer().notNull(), created_at:text().notNull() });
 export const AUTH_ATTEMPTS = sqliteTable("AUTH_ATTEMPTS", { attempt_id:integer().primaryKey({autoIncrement:true}), identifier:text().notNull(), attempted_at:integer().notNull() },t=>[index("IX_AUTH_ATTEMPTS_identifier_time").on(t.identifier,t.attempted_at)]);
 export const APP_SETUP = sqliteTable("APP_SETUP", { setup_id:integer().primaryKey(), completed_at:text().notNull() });
+export const CLUB_JOIN_REQUESTS = sqliteTable("CLUB_JOIN_REQUESTS", {
+  request_id: integer().primaryKey({ autoIncrement: true }),
+  club_id: integer().notNull().references(() => CLUBS.club_id),
+  user_id: integer().notNull().references(() => USERS.user_id),
+  request_status: text().notNull().default("PENDING"),
+  message: text(),
+  review_note: text(),
+  created_at: text().notNull(),
+  reviewed_by: integer().references(() => USERS.user_id),
+  reviewed_at: text(),
+}, (t) => [
+  uniqueIndex("UQ_CLUB_JOIN_REQUESTS_club_user").on(t.club_id, t.user_id),
+  index("IX_CLUB_JOIN_REQUESTS_status").on(t.club_id, t.request_status),
+  check("CK_CLUB_JOIN_REQUESTS_status", sql`${t.request_status} IN ('PENDING','APPROVED','REJECTED')`),
+]);

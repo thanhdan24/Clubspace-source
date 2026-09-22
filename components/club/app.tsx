@@ -51,6 +51,7 @@ import { AppContext, fetchApi, Avatar, labels, SelectBox } from "./shared";
 import Dashboard from "./dashboard";
 import WebTools from "./web-tools";
 import Notifications from "./notifications";
+import { DiscoverClubs, JoinRequests } from "./join-pages";
 import {
   Members,
   Accounts,
@@ -63,6 +64,7 @@ import {
 import { Events, EventDetail, MyRegistrations } from "./event-pages";
 import { Finance, Categories, Reports } from "./finance-pages";
 const navigation = [
+  { id: "discover", label: "Khám phá CLB", icon: Building2, roles: [] },
   { id: "dashboard", label: "Tổng quan", icon: LayoutDashboard, roles: [] },
   {
     id: "members",
@@ -92,6 +94,12 @@ const navigation = [
   },
 ];
 const management = [
+  {
+    id: "join-requests",
+    label: "Yêu cầu tham gia",
+    icon: Users,
+    roles: ["LEADER", "OFFICER"],
+  },
   { id: "accounts", label: "Tài khoản", icon: UserRound, roles: ["ADMIN"] },
   { id: "clubs", label: "Câu lạc bộ", icon: Building2, roles: ["ADMIN"] },
   {
@@ -361,7 +369,12 @@ export default function ClubApp() {
         <Toaster richColors position="top-right" />
       </>
     );
-  const routePath = route.split("?")[0];
+  const requestedRoute = route.split("?")[0];
+  const routePath =
+    !club &&
+    !["profile", "accounts", "clubs", "roles", "audit"].includes(requestedRoute)
+      ? "discover"
+      : requestedRoute;
   const roleList = session.roles as string[],
     can = (...r: string[]) => r.some((v) => roleList.includes(v)),
     staff = can("ADMIN", "LEADER", "OFFICER", "TREASURER");
@@ -383,6 +396,12 @@ export default function ClubApp() {
     page = <EventDetail key={routePath} id={Number(routePath.split("/")[1])} />;
   else
     switch (routePath) {
+      case "discover":
+        page = <DiscoverClubs />;
+        break;
+      case "join-requests":
+        page = <JoinRequests />;
+        break;
       case "members":
         page = <Members />;
         break;
@@ -466,24 +485,32 @@ export default function ClubApp() {
               </span>
               <div>
                 <span>CÂU LẠC BỘ CỦA BẠN</span>
-                <SelectBox
-                  label="Chọn câu lạc bộ"
-                  value={club}
-                  onChange={(v) => {
-                    load(Number(v));
-                    refresh();
-                  }}
-                  options={session.clubs.map((c: any) => ({
-                    value: c.club_id,
-                    label: c.club_name.replace("CLB ", ""),
-                  }))}
-                />
+                {session.clubs.length === 0 ? (
+                  <p>Chưa tham gia CLB</p>
+                ) : (
+                  <SelectBox
+                    label="Chọn câu lạc bộ"
+                    value={club}
+                    onChange={(v) => {
+                      load(Number(v));
+                      refresh();
+                    }}
+                    options={session.clubs.map((c: any) => ({
+                      value: c.club_id,
+                      label: c.club_name.replace("CLB ", ""),
+                    }))}
+                  />
+                )}
               </div>
             </div>
             <SidebarGroup>
               <SidebarGroupLabel>KHÔNG GIAN LÀM VIỆC</SidebarGroupLabel>
               <Nav
-                items={navigation}
+                items={
+                  club
+                    ? navigation
+                    : navigation.filter((n) => n.id === "discover")
+                }
                 roles={roleList}
                 route={routePath}
                 navigate={navigate}
@@ -517,7 +544,9 @@ export default function ClubApp() {
               <span>
                 <strong>{session.user.full_name.split("·")[0]}</strong>
                 <small>
-                  {labels[roleList.find((r) => r !== "MEMBER") || "MEMBER"]}
+                  {roleList.length
+                    ? labels[roleList.find((r) => r !== "MEMBER") || "MEMBER"]
+                    : "Chưa tham gia CLB"}
                 </small>
               </span>
               <ArrowRight size={17} />
@@ -533,7 +562,7 @@ export default function ClubApp() {
               </span>
             </div>
             <div className="topbar-right">
-              <Notifications />
+              {club > 0 && <Notifications />}
               {session.demo && (
                 <span className="preview-badge">Bản trải nghiệm</span>
               )}

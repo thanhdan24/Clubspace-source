@@ -52,7 +52,9 @@ class SqlStatement implements Statement {
       ? new sql.Request(this.owner.transaction)
       : new sql.Request(this.owner.pool);
     this.values.forEach((v, i) => {
-      if (typeof v === "number")
+      if (typeof v === "boolean")
+        request.input("p" + i, sql.Bit, v);
+      else if (typeof v === "number")
         request.input(
           "p" + i,
           Number.isInteger(v) ? sql.BigInt : sql.Decimal(15, 2),
