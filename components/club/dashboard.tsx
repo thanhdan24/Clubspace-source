@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import {
   Users,
   CalendarDays,
@@ -15,7 +16,13 @@ import {
   ChevronRight,
   History,
   CheckCircle2,
+  Building2,
+  ShieldCheck,
+  UserRound,
+  Compass,
+  LogOut,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -28,6 +35,7 @@ import {
   EmptyState,
   Avatar,
   Badge,
+  Confirm,
   labels,
   num,
   money,
@@ -130,9 +138,20 @@ export function EventMini({ event }: any) {
   );
 }
 export default function Dashboard() {
-  const { session, can, navigate, activeClub, staff } = useApp(),
+  const {
+    session,
+    can,
+    navigate,
+    activeClub,
+    staff,
+    mutate,
+    reloadSession,
+    refresh,
+    club,
+  } = useApp(),
     r = useResource("dashboard");
   const d = r.data;
+  const [leaveModal, setLeaveModal] = useState(false);
   const today = new Intl.DateTimeFormat("vi-VN", {
     weekday: "long",
     day: "numeric",
@@ -384,7 +403,7 @@ export default function Dashboard() {
                         <span>
                           <CheckCheck size={20} />
                         </span>
-                        Phê duyệt chi
+                        Phê duyệt
                       </button>
                     )}
                     <button onClick={() => navigate("reports")}>
@@ -458,6 +477,17 @@ export default function Dashboard() {
                     <p>{d.membership.member_code}</p>
                     <Badge value={d.membership.member_status} />
                     <small>Gia nhập {dateText(d.membership.join_date)}</small>
+                    <div className="w-full pt-3 mt-1 border-t border-border">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 text-xs w-full"
+                        onClick={() => setLeaveModal(true)}
+                      >
+                        <LogOut size={14} className="mr-1.5" />
+                        Rời câu lạc bộ
+                      </Button>
+                    </div>
                   </section>
                 )}
               </aside>
@@ -491,6 +521,22 @@ export default function Dashboard() {
           </>
         )}
       </LoadState>
+      {leaveModal && (
+        <Confirm
+          title={`Rời câu lạc bộ ${activeClub?.club_name || ""}?`}
+          description="Bạn có chắc chắn muốn rời câu lạc bộ không? Sau khi rời, bạn sẽ không còn quyền truy cập dữ liệu và hoạt động nội bộ của câu lạc bộ."
+          reason={true}
+          onClose={() => setLeaveModal(false)}
+          onConfirm={async (reason: string) => {
+            await mutate(`clubs/${club}/leave`, { reason }, "POST");
+            toast.success(`Bạn đã rời câu lạc bộ ${activeClub?.club_name || ""}.`);
+            setLeaveModal(false);
+            await reloadSession(0);
+            navigate("dashboard");
+            refresh();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -498,6 +544,7 @@ export function actionLabel(a: string) {
   const map: Record<string, string> = {
     ASSIGN_ROLE: "Cập nhật phân quyền",
     CHANGE_MEMBER_STATUS: "Thay đổi trạng thái thành viên",
+    LEAVE_CLUB: "Rời câu lạc bộ",
     UPDATE_MEMBER: "Cập nhật hồ sơ thành viên",
     CREATE_EVENT: "Tạo sự kiện",
     UPDATE_EVENT: "Cập nhật sự kiện",
@@ -521,4 +568,228 @@ export function actionLabel(a: string) {
     REVIEW_REGISTRATION: "Duyệt đăng ký",
   };
   return map[a] || a.toLowerCase().replaceAll("_", " ");
+}
+
+export function AdminDashboard() {
+  const { navigate, switchClub } = useApp();
+  const r = useResource("admin/overview");
+  const [showClubView, setShowClubView] = useState(false);
+
+  if (showClubView) {
+    return (
+      <>
+        <div className="mb-4 flex items-center justify-between p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+          <div className="flex items-center gap-2.5 text-sm text-amber-800 dark:text-amber-300 font-medium">
+            <Building2 size={18} />
+            <span>Đang ở chế độ xem chi tiết câu lạc bộ</span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowClubView(false)}
+          >
+            Quay lại Tổng quan Hệ thống
+          </Button>
+        </div>
+        <Dashboard />
+      </>
+    );
+  }
+
+  const d = r.data;
+  return (
+    <LoadState {...r}>
+      {d && (
+        <>
+          <PageTitle
+            eyebrow="TRUNG TÂM ĐIỀU HÀNH HỆ THỐNG"
+            title="Tổng quan toàn trường"
+            description="Báo cáo tình hình câu lạc bộ, tài khoản người dùng, hoạt động sự kiện và an ninh vận hành."
+          >
+            <Button onClick={() => navigate("clubs")}>
+              <Plus size={16} />
+              Tạo câu lạc bộ
+            </Button>
+            <Button variant="outline" onClick={() => navigate("accounts")}>
+              <UserRound size={16} />
+              Thêm tài khoản
+            </Button>
+          </PageTitle>
+
+          <div className="metrics-grid">
+            <Metric
+              icon={Building2}
+              label="Câu lạc bộ"
+              value={num(d.clubs?.total)}
+              note={`${num(d.clubs?.active)} đang hoạt động · ${num(d.clubs?.inactive)} tạm dừng`}
+            />
+            <Metric
+              icon={UserRound}
+              label="Tài khoản người dùng"
+              value={num(d.accounts?.total)}
+              note={`${num(d.accounts?.active)} hoạt động · ${num(d.accounts?.locked)} bị khóa`}
+            />
+            <Metric
+              icon={CalendarDays}
+              label="Sự kiện toàn trường"
+              value={num(d.events?.total)}
+              note={`${num(d.events?.open)} đang mở · ${num(d.events?.ongoing)} diễn ra`}
+            />
+            <Metric
+              icon={History}
+              label="Nhật ký vận hành"
+              value={num(d.audits?.total)}
+              note="Bản ghi kiểm vết an ninh"
+            />
+          </div>
+
+          <div className="dashboard-columns">
+            <div className="dashboard-primary">
+              <section className="panel">
+                <SectionHeader title="Danh sách các câu lạc bộ trong trường">
+                  <button className="text-link" onClick={() => navigate("clubs")}>
+                    Xem tất cả <ArrowUpRight size={16} />
+                  </button>
+                </SectionHeader>
+                <div className="space-y-3 mt-3">
+                  {d.recentClubs?.length ? (
+                    d.recentClubs.map((c: any) => (
+                      <div
+                        key={c.club_id}
+                        className="flex items-center justify-between p-3.5 rounded-xl border border-border/70 hover:border-primary/40 bg-card/50 hover:bg-muted/40 transition-colors"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
+                            {c.club_code.slice(0, 4)}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <strong className="text-sm truncate font-semibold">
+                                {c.club_name}
+                              </strong>
+                              <Badge value={c.club_status} />
+                            </div>
+                            <span className="text-xs text-muted-foreground block truncate">
+                              {c.club_code} · {num(c.active_members_count)} thành viên chính thức
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => switchClub(c.club_id, "settings")}
+                          >
+                            Cài đặt
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <EmptyState
+                      title="Chưa có câu lạc bộ nào"
+                      description="Nhấn 'Tạo câu lạc bộ' để khởi tạo CLB đầu tiên."
+                    />
+                  )}
+                </div>
+              </section>
+
+              <section className="panel">
+                <SectionHeader title="Phân bổ tài khoản theo trạng thái" />
+                <div className="grid grid-cols-3 gap-4 my-2 text-center">
+                  <div className="p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                    <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium block">Đang hoạt động</span>
+                    <strong className="text-xl font-bold text-emerald-800 dark:text-emerald-300">{num(d.accounts?.active)}</strong>
+                  </div>
+                  <div className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <span className="text-xs text-amber-700 dark:text-amber-400 font-medium block">Tạm khóa</span>
+                    <strong className="text-xl font-bold text-amber-800 dark:text-amber-300">{num(d.accounts?.locked)}</strong>
+                  </div>
+                  <div className="p-3.5 rounded-lg bg-slate-500/10 border border-slate-500/20">
+                    <span className="text-xs text-muted-foreground font-medium block">Chưa kích hoạt</span>
+                    <strong className="text-xl font-bold text-foreground">{num(d.accounts?.inactive)}</strong>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <aside className="dashboard-secondary">
+              <section className="panel quick-actions">
+                <SectionHeader title="Thao tác quản trị" />
+                <div className="quick-grid">
+                  <button onClick={() => navigate("accounts")}>
+                    <span>
+                      <UserRound size={20} />
+                    </span>
+                    Tài khoản
+                  </button>
+                  <button onClick={() => navigate("clubs")}>
+                    <span>
+                      <Building2 size={20} />
+                    </span>
+                    Câu lạc bộ
+                  </button>
+                  <button onClick={() => navigate("roles")}>
+                    <span>
+                      <ShieldCheck size={20} />
+                    </span>
+                    Phân quyền
+                  </button>
+                  <button onClick={() => navigate("audit")}>
+                    <span>
+                      <History size={20} />
+                    </span>
+                    Nhật ký
+                  </button>
+                  <button onClick={() => navigate("explore-clubs")}>
+                    <span>
+                      <Compass size={20} />
+                    </span>
+                    Khám phá CLB
+                  </button>
+                  <button onClick={() => setShowClubView(true)}>
+                    <span>
+                      <Activity size={20} />
+                    </span>
+                    Xem CLB lẻ
+                  </button>
+                </div>
+              </section>
+
+              <section className="panel">
+                <SectionHeader title="Nhật ký an ninh gần nhất">
+                  <button className="text-link" onClick={() => navigate("audit")}>
+                    Chi tiết <ArrowUpRight size={16} />
+                  </button>
+                </SectionHeader>
+                <div className="space-y-2.5 mt-2">
+                  {d.recentAudits?.length ? (
+                    d.recentAudits.map((a: any) => (
+                      <div
+                        key={a.audit_id}
+                        className="text-xs p-2.5 rounded-lg border border-border/50 bg-muted/20"
+                      >
+                        <div className="flex items-center justify-between font-semibold">
+                          <span className="text-primary">{actionLabel(a.action_code)}</span>
+                          <span className="text-muted-foreground text-[11px]">{dateText(a.created_at, true)}</span>
+                        </div>
+                        <div className="text-muted-foreground mt-0.5 truncate">
+                          {a.full_name || a.username || "Hệ thống"} {a.club_name ? `· ${a.club_name}` : ""}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <EmptyState
+                      title="Chưa có nhật ký"
+                      description="Các thao tác hệ thống sẽ được ghi lại tại đây."
+                    />
+                  )}
+                </div>
+              </section>
+            </aside>
+          </div>
+        </>
+      )}
+    </LoadState>
+  );
 }

@@ -28,9 +28,9 @@ export class ApiError extends Error {
     super(message);
   }
 }
-export const fail = (condition: any, message: string, status = 400) => {
+export function fail(condition: unknown, message: string, status = 400): asserts condition {
   if (!condition) throw new ApiError(status, message);
-};
+}
 export const now = () =>
   new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 19);
 export const day = () => now().slice(0, 10);

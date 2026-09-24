@@ -524,6 +524,86 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     );
     return json({ ok: true, request_id: id }, 201);
   }
+  const leaveMatch = path.match(/^clubs\/(\d+)\/leave$/);
+  if (leaveMatch && method === "POST") {
+    const targetClubId = Number(leaveMatch[1]);
+    const targetClub = await one(
+      c.db,
+      "SELECT * FROM CLUBS WHERE club_id=?",
+      [targetClubId],
+    );
+    fail(targetClub, "Câu lạc bộ không tồn tại.", 404);
+
+    const member = await one(
+      c.db,
+      "SELECT * FROM CLUB_MEMBERS WHERE club_id=? AND user_id=? AND member_status='ACTIVE'",
+      [targetClubId, c.user.user_id],
+    );
+    fail(
+      member,
+      "Bạn không phải là thành viên đang hoạt động của câu lạc bộ này.",
+      400,
+    );
+
+    // Kiểm tra bảo vệ Chủ nhiệm: nếu người rời là LEADER, không được là LEADER duy nhất còn lại
+    const isLeader = await one(
+      c.db,
+      "SELECT ur.user_role_id FROM USER_ROLES ur JOIN ROLES r ON r.role_id=ur.role_id WHERE ur.club_id=? AND ur.user_id=? AND r.role_code='LEADER' AND ur.active_flag=1",
+      [targetClubId, c.user.user_id],
+    );
+    if (isLeader) {
+      const otherLeaders = await one(
+        c.db,
+        "SELECT COUNT(*) AS n FROM USER_ROLES ur JOIN ROLES r ON r.role_id=ur.role_id WHERE ur.club_id=? AND ur.user_id<>? AND r.role_code='LEADER' AND ur.active_flag=1",
+        [targetClubId, c.user.user_id],
+      );
+      fail(
+        Number(otherLeaders?.n) > 0,
+        "Bạn là Chủ nhiệm duy nhất của câu lạc bộ. Vui lòng bàn giao vai trò Chủ nhiệm cho thành viên khác trước khi rời CLB.",
+        400,
+      );
+    }
+
+    const b = z
+      .object({
+        reason: z.string().trim().max(500).optional(),
+      })
+      .parse(await body(req));
+
+    const leaveReason = b.reason || "Hội viên tự nguyện rời câu lạc bộ.";
+
+    await c.db.batch([
+      stmt(
+        c.db,
+        "UPDATE CLUB_MEMBERS SET member_status='LEFT', leave_date=?, updated_at=? WHERE club_member_id=?",
+        [day(), now(), member.club_member_id],
+      ),
+      stmt(
+        c.db,
+        "UPDATE USER_ROLES SET active_flag=0 WHERE club_id=? AND user_id=?",
+        [targetClubId, c.user.user_id],
+      ),
+      stmt(
+        c.db,
+        "INSERT INTO MEMBER_STATUS_HISTORY(club_member_id, old_status, new_status, reason, changed_by, changed_at) VALUES (?,?,?,?,?,?)",
+        [
+          member.club_member_id,
+          member.member_status,
+          "LEFT",
+          leaveReason,
+          c.user.user_id,
+          now(),
+        ],
+      ),
+      audit(c, "LEAVE_CLUB", "CLUB_MEMBERS", member.club_member_id, member, {
+        member_status: "LEFT",
+        leave_date: day(),
+        reason: leaveReason,
+      }),
+    ]);
+
+    return json({ ok: true, message: "Bạn đã rời câu lạc bộ thành công." });
+  }
   if (path === "my-join-requests" && method === "GET") {
     const rows = await all(
       c.db,

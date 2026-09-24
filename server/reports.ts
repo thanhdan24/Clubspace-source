@@ -101,6 +101,70 @@ function groupFinanceByMonth(rows: any[]) {
 }
 
 export async function reportsRoute(c: Context, path: string, req: Request) {
+  if (path === "admin/overview" && req.method === "GET") {
+    fail(c.admin, "Chỉ quản trị viên hệ thống mới có quyền truy cập.", 403);
+    const clubStats = await one(
+      c.db,
+      `SELECT
+         COUNT(*) AS total,
+         COALESCE(SUM(CASE WHEN club_status='ACTIVE' THEN 1 ELSE 0 END), 0) AS active,
+         COALESCE(SUM(CASE WHEN club_status!='ACTIVE' THEN 1 ELSE 0 END), 0) AS inactive
+       FROM CLUBS`,
+    );
+    const accountStats = await one(
+      c.db,
+      `SELECT
+         COUNT(*) AS total,
+         COALESCE(SUM(CASE WHEN account_status='ACTIVE' THEN 1 ELSE 0 END), 0) AS active,
+         COALESCE(SUM(CASE WHEN account_status='LOCKED' THEN 1 ELSE 0 END), 0) AS locked,
+         COALESCE(SUM(CASE WHEN account_status='INACTIVE' THEN 1 ELSE 0 END), 0) AS inactive
+       FROM USERS`,
+    );
+    const eventStats = await one(
+      c.db,
+      `SELECT
+         COUNT(*) AS total,
+         COALESCE(SUM(CASE WHEN event_status='OPEN' THEN 1 ELSE 0 END), 0) AS open,
+         COALESCE(SUM(CASE WHEN event_status='ONGOING' THEN 1 ELSE 0 END), 0) AS ongoing,
+         COALESCE(SUM(CASE WHEN event_status='COMPLETED' THEN 1 ELSE 0 END), 0) AS completed
+       FROM EVENTS`,
+    );
+    const auditStats = await one(
+      c.db,
+      "SELECT COUNT(*) AS total FROM AUDIT_LOGS",
+    );
+    const clubs = await all(
+      c.db,
+      `SELECT
+         c.*,
+         COALESCE((SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE'), 0) AS active_members_count
+       FROM CLUBS c
+       ORDER BY c.club_id DESC
+       LIMIT 8`,
+    );
+    const recentAudits = await all(
+      c.db,
+      `SELECT
+         a.*,
+         u.full_name,
+         u.username,
+         c_info.club_name
+       FROM AUDIT_LOGS a
+       LEFT JOIN USERS u ON u.user_id=a.user_id
+       LEFT JOIN CLUBS c_info ON c_info.club_id=a.club_id
+       ORDER BY a.created_at DESC, a.audit_id DESC
+       LIMIT 8`,
+    );
+    return json({
+      clubs: clubStats,
+      accounts: accountStats,
+      events: eventStats,
+      audits: auditStats,
+      recentClubs: clubs,
+      recentAudits,
+    });
+  }
+
   if (!["dashboard", "reports"].includes(path) || req.method !== "GET") {
     return null;
   }

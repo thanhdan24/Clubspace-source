@@ -55,6 +55,7 @@ import {
   type Field,
 } from "./shared";
 import { MoneyBars } from "./dashboard";
+import { JoinRequestsSection } from "./people-pages";
 const transactionStatuses = [
   "DRAFT",
   "PENDING_APPROVAL",
@@ -467,7 +468,13 @@ function TransactionDetail({ row, onClose, onEdit }: any) {
     </>
   );
 }
-export function Finance({ approvals = false }: any) {
+export function Finance({
+  approvals = false,
+  hidePageTitle = false,
+}: {
+  approvals?: boolean;
+  hidePageTitle?: boolean;
+}) {
   const { can, navigate } = useApp(),
     f = useFilters(),
     [type, setType] = useState(""),
@@ -487,23 +494,25 @@ export function Finance({ approvals = false }: any) {
   }, []);
   return (
     <>
-      <PageTitle
-        eyebrow="TÀI CHÍNH MINH BẠCH"
-        title={approvals ? "Đề nghị chờ phê duyệt" : "Sổ quỹ câu lạc bộ"}
-        description={
-          approvals
-            ? "Xem xét khoản chi và lưu lại quyết định phê duyệt."
-            : "Theo dõi dòng tiền, chứng từ và trạng thái từng giao dịch."
-        }
-      >
-        <ExportButton path={"finance?" + params} />
-        {can("TREASURER") && (
-          <Button onClick={() => setEditing({})}>
-            <Plus />
-            Thêm thu chi
-          </Button>
-        )}
-      </PageTitle>
+      {!hidePageTitle && (
+        <PageTitle
+          eyebrow="TÀI CHÍNH MINH BẠCH"
+          title={approvals ? "Đề nghị chờ phê duyệt" : "Sổ quỹ câu lạc bộ"}
+          description={
+            approvals
+              ? "Xem xét khoản chi và lưu lại quyết định phê duyệt."
+              : "Theo dõi dòng tiền, chứng từ và trạng thái từng giao dịch."
+          }
+        >
+          <ExportButton path={"finance?" + params} />
+          {can("TREASURER") && (
+            <Button onClick={() => setEditing({})}>
+              <Plus />
+              Thêm thu chi
+            </Button>
+          )}
+        </PageTitle>
+      )}
       {!approvals && summary.data?.fund && (
         <div className="metrics-grid finance-metrics">
           <Metric
@@ -1155,3 +1164,57 @@ export function Reports() {
   );
 }
 const HistoryIcon = Clock;
+
+export function ApprovalCenter() {
+  const [tab, setTab] = useState<"expenses" | "join-requests">("expenses");
+  const pendingExpenses = useResource("finance?status=PENDING_APPROVAL&limit=1");
+  const pendingRequests = useResource("join-requests?status=PENDING&limit=1");
+
+  const expensePendingCount = Number(pendingExpenses.data?.total || 0);
+  const requestPendingCount = Number(pendingRequests.data?.total || 0);
+
+  return (
+    <>
+      <PageTitle
+        eyebrow="TRUNG TÂM PHÊ DUYỆT"
+        title="Phê duyệt chi tiêu & thành viên"
+        description="Xem xét phê duyệt các đề nghị chi tiêu tài chính và đơn xin gia nhập câu lạc bộ từ sinh viên."
+      >
+        <ExportButton
+          path={
+            tab === "expenses"
+              ? "finance?status=PENDING_APPROVAL"
+              : "join-requests?status=PENDING"
+          }
+        />
+      </PageTitle>
+
+      <Tabs
+        value={tab}
+        onValueChange={(v: any) => setTab(v)}
+        className="page-tabs mb-4"
+      >
+        <TabsList variant="line">
+          <TabsTrigger value="expenses">
+            Đề nghị chi tiêu
+            {expensePendingCount > 0 && (
+              <span className="tab-count">{expensePendingCount}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="join-requests">
+            Đơn xin gia nhập
+            {requestPendingCount > 0 && (
+              <span className="tab-count">{requestPendingCount}</span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {tab === "expenses" ? (
+        <Finance approvals={true} hidePageTitle={true} />
+      ) : (
+        <JoinRequestsSection hideTitle={true} />
+      )}
+    </>
+  );
+}

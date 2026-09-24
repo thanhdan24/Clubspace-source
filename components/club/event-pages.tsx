@@ -56,6 +56,8 @@ const statuses = [
 ];
 function EventEditor({ event = {}, onClose, onSaved }: any) {
   const { mutate, navigate } = useApp();
+  const nowIso = localNow();
+  const today = nowIso.slice(0, 10);
   const start = new Date(Date.now() + 7 * 24 * 3600000 + 7 * 3600000)
     .toISOString()
     .slice(0, 10);
@@ -97,18 +99,23 @@ function EventEditor({ event = {}, onClose, onSaved }: any) {
       label: "Bắt đầu",
       type: "datetime-local",
       required: true,
+      min: today + "T00:00",
+      help: "Thời gian bắt đầu sự kiện từ ngày hôm nay trở đi.",
     },
     {
       name: "end_at",
       label: "Kết thúc",
       type: "datetime-local",
       required: true,
+      min: today + "T00:00",
     },
     {
       name: "registration_deadline",
       label: "Hạn đăng ký",
       type: "datetime-local",
       required: true,
+      min: today + "T00:00",
+      help: "Hạn chót đăng ký (trước hoặc bằng giờ bắt đầu).",
     },
     {
       name: "capacity",
@@ -143,10 +150,15 @@ function EventEditor({ event = {}, onClose, onSaved }: any) {
       }}
       onClose={onClose}
       onSave={async (v: Row) => {
+        const curToday = localNow().slice(0, 10);
+        if (!event.event_id && v.start_at.slice(0, 10) < curToday)
+          throw new Error("Thời gian bắt đầu sự kiện phải từ ngày hôm nay trở đi.");
         if (v.end_at <= v.start_at)
           throw new Error("Thời gian kết thúc phải sau khi bắt đầu.");
         if (v.registration_deadline > v.start_at)
           throw new Error("Hạn đăng ký phải trước hoặc bằng giờ bắt đầu.");
+        if (!event.event_id && v.registration_deadline.slice(0, 10) < curToday)
+          throw new Error("Hạn đăng ký phải từ ngày hôm nay trở đi.");
         const out = await mutate(
           event.event_id ? "events/" + event.event_id : "events",
           { ...v, capacity: v.capacity ? Number(v.capacity) : null },
@@ -162,9 +174,16 @@ export function Events() {
   const { can, navigate } = useApp(),
     f = useFilters(),
     [type, setType] = useState(""),
+    [scope, setScope] = useState(""),
     [view, setView] = useState("grid"),
     [editing, setEditing] = useState(false),
-    r = useResource("events?" + f.query + "&type=" + type);
+    r = useResource(
+      "events?" +
+        f.query +
+        "&type=" +
+        type +
+        (scope ? "&scope=" + scope : ""),
+    );
   useEffect(() => {
     if (window.location.hash.includes("?new") && can("OFFICER", "LEADER"))
       setEditing(true);
@@ -191,6 +210,19 @@ export function Events() {
               s !== "DRAFT" || can("ADMIN", "LEADER", "OFFICER", "TREASURER"),
           )}
         >
+          <SelectBox
+            label="Phạm vi"
+            value={scope}
+            onChange={(v) => {
+              setScope(v);
+              f.setPage(1);
+            }}
+            options={[
+              { value: "", label: "Tất cả phạm vi" },
+              { value: "PUBLIC", label: "Toàn trường (Công khai)" },
+              { value: "INTERNAL", label: "Nội bộ CLB" },
+            ]}
+          />
           <SelectBox
             label="Loại sự kiện"
             value={type}
@@ -239,6 +271,15 @@ export function Events() {
                     >
                       {r.event_name}
                     </button>
+                  ),
+                },
+                {
+                  key: "club_name",
+                  title: "CLB TỔ CHỨC",
+                  render: (r: Row) => (
+                    <span className="font-medium text-slate-700">
+                      {r.club_name || "CLB của bạn"}
+                    </span>
                   ),
                 },
                 {
@@ -307,9 +348,14 @@ export function Events() {
                       />
                     </div>
                     <div className="event-card-content">
-                      <div className="flex items-center gap-1.5 mb-2">
+                      <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                         <Badge value={e.event_status} />
                         <Badge value={e.scope || "PUBLIC"} />
+                        {e.club_name && (
+                          <span className="text-xs text-slate-500 font-medium truncate max-w-[180px]">
+                            · {e.club_name}
+                          </span>
+                        )}
                       </div>
                       <h2>
                         <a href={"#events/" + e.event_id}>{e.event_name}</a>
@@ -636,7 +682,7 @@ function Roster({ event, attendance = false }: any) {
   );
 }
 export function EventDetail({ id }: any) {
-  const { can, staff, mutate, navigate } = useApp(),
+  const { can, staff, mutate, navigate, club } = useApp(),
     r = useResource("events/" + id),
     [tab, setTab] = useState("overview"),
     [editing, setEditing] = useState(false),
@@ -644,14 +690,12 @@ export function EventDetail({ id }: any) {
   const e = r.data?.event,
     s = r.data?.stats,
     mine = r.data?.mine;
+  const isHostClub = e && e.club_id === club;
   const actions: any = {
     DRAFT: [["publish", "Công bố sự kiện"]],
-    OPEN: [
-      ["close", "Chốt danh sách"],
-      ["start", "Bắt đầu sự kiện"],
-    ],
+    OPEN: [["close", "Chốt danh sách"]],
     CLOSED: [
-      ["start", "Bắt đầu sự kiện"],
+      ["reopen", "Mở lại đăng ký"],
       ["complete", "Khóa & hoàn tất"],
     ],
     ONGOING: [["complete", "Khóa & hoàn tất"]],
@@ -670,9 +714,11 @@ export function EventDetail({ id }: any) {
               title={e.event_name}
               description={e.location}
             >
+              {e.club_name && <Badge value={e.club_name} />}
               <Badge value={e.scope || "PUBLIC"} />
               <Badge value={e.event_status} />
               {can("OFFICER", "LEADER") &&
+                isHostClub &&
                 !["COMPLETED", "CANCELLED"].includes(e.event_status) && (
                   <Button variant="outline" onClick={() => setEditing(true)}>
                     <Pencil size={16} />
@@ -713,13 +759,13 @@ export function EventDetail({ id }: any) {
             <Tabs value={tab} onValueChange={setTab} className="page-tabs">
               <TabsList variant="line">
                 <TabsTrigger value="overview">Thông tin sự kiện</TabsTrigger>
-                {staff && (
+                {staff && isHostClub && (
                   <TabsTrigger value="registrations">
                     Danh sách đăng ký{" "}
                     <span className="tab-count">{s.total_registrations}</span>
                   </TabsTrigger>
                 )}
-                {staff && (
+                {staff && isHostClub && (
                   <TabsTrigger value="attendance">Điểm danh</TabsTrigger>
                 )}
               </TabsList>
@@ -731,6 +777,7 @@ export function EventDetail({ id }: any) {
                   <dl className="details-list">
                     {[
                       ["Tên sự kiện", e.event_name],
+                      ["Đơn vị tổ chức", e.club_name || "CLB của bạn"],
                       [
                         "Phạm vi",
                         e.scope === "INTERNAL"
@@ -814,7 +861,7 @@ export function EventDetail({ id }: any) {
                             disabled={
                               e.event_status !== "OPEN" ||
                               e.registration_deadline < localNow() ||
-                              r.data.membership?.member_status !== "ACTIVE"
+                              (r.data.membership && r.data.membership.member_status !== "ACTIVE")
                             }
                             onClick={() =>
                               mutate(`events/${id}/registration`, {
@@ -832,7 +879,7 @@ export function EventDetail({ id }: any) {
                       Đăng ký và hủy đăng ký trước thời hạn công bố.
                     </small>
                   </section>
-                  {can("OFFICER", "LEADER") && (
+                  {can("OFFICER", "LEADER") && isHostClub && (
                     <section className="panel event-controls">
                       <SectionHeader title="Điều hành sự kiện" />
                       {(actions[e.event_status] || []).map(

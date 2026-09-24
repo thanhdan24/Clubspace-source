@@ -18,6 +18,7 @@ import {
   Compass,
   Clock,
   Loader2,
+  LogOut,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -133,6 +134,224 @@ function MemberDetail({ id, onClose }: any) {
     </Sheet>
   );
 }
+
+export function JoinRequestsSection({
+  hideTitle = false,
+}: {
+  hideTitle?: boolean;
+}) {
+  const { mutate, refresh } = useApp();
+  const reqFilter = useFilters();
+  const reqResource = useResource("join-requests?" + reqFilter.query);
+  const [approveModal, setApproveModal] = useState<Row | null>(null);
+  const [rejectModal, setRejectModal] = useState<Row | null>(null);
+  const [selectedDept, setSelectedDept] = useState("Ban Thành viên");
+
+  return (
+    <>
+      {!hideTitle && (
+        <PageTitle
+          eyebrow="XÉT DUYỆT THÀNH VIÊN"
+          title="Đơn đăng ký tham gia CLB"
+          description="Xét duyệt sinh viên đăng ký tham gia câu lạc bộ và phân ban sinh hoạt."
+        />
+      )}
+      <section className="panel">
+        <Filters
+          q={reqFilter.q}
+          setQ={reqFilter.setQ}
+          status={reqFilter.status}
+          setStatus={reqFilter.setStatus}
+          statuses={["PENDING", "APPROVED", "REJECTED"]}
+        />
+        <LoadState {...reqResource} variant="table">
+          <DataTable
+            data={reqResource.data}
+            page={reqFilter.page}
+            setPage={reqFilter.setPage}
+            columns={[
+              {
+                key: "student",
+                title: "SINH VIÊN",
+                render: (r: Row) => (
+                  <div className="person-cell">
+                    <Avatar name={r.full_name} />
+                    <div>
+                      <strong>{r.full_name}</strong>
+                      <small>{r.student_code || r.email || r.username}</small>
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                key: "faculty",
+                title: "KHOA / LỚP",
+                render: (r: Row) => (
+                  <span>
+                    {r.faculty || "—"}
+                    {r.class_name ? ` · ${r.class_name}` : ""}
+                  </span>
+                ),
+              },
+              {
+                key: "contact",
+                title: "LIÊN HỆ",
+                render: (r: Row) => (
+                  <div className="text-xs leading-relaxed">
+                    <div>{r.email || "—"}</div>
+                    <div className="text-muted">{r.phone || ""}</div>
+                  </div>
+                ),
+              },
+              {
+                key: "message",
+                title: "LỜI NHẮN / NGUYỆN VỌNG",
+                render: (r: Row) => (
+                  <span
+                    className="line-clamp-2 max-w-xs text-xs"
+                    title={r.message || ""}
+                  >
+                    {r.message || "—"}
+                  </span>
+                ),
+              },
+              {
+                key: "created_at",
+                title: "NGÀY NỘP",
+                render: (r: Row) => dateText(r.created_at, true),
+              },
+              {
+                key: "status",
+                title: "TRẠNG THÁI",
+                render: (r: Row) => <Badge value={r.status} />,
+              },
+              {
+                key: "actions",
+                title: "",
+                render: (r: Row) =>
+                  r.status === "PENDING" ? (
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={() => setApproveModal(r)}
+                      >
+                        Duyệt
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setRejectModal(r)}
+                      >
+                        Từ chối
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted">
+                      {r.reviewer_name
+                        ? `${r.status === "APPROVED" ? "Duyệt" : "Từ chối"}: ${r.reviewer_name}`
+                        : "—"}
+                    </span>
+                  ),
+              },
+            ]}
+          />
+        </LoadState>
+      </section>
+
+      {approveModal && (
+        <Dialog open onOpenChange={(v) => !v && setApproveModal(null)}>
+          <DialogContent className="editor-dialog">
+            <DialogHeader>
+              <DialogTitle>Duyệt đơn gia nhập câu lạc bộ</DialogTitle>
+              <DialogDescription>
+                Phê duyệt sinh viên <strong>{approveModal.full_name}</strong> (
+                {approveModal.student_code || approveModal.email}) vào câu lạc
+                bộ.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {approveModal.message && (
+                <div className="bg-muted p-3.5 rounded-xl text-sm">
+                  <span className="text-muted block text-xs mb-1 font-medium">
+                    Lời nhắn của sinh viên:
+                  </span>
+                  <p className="italic font-normal">
+                    "{approveModal.message}"
+                  </p>
+                </div>
+              )}
+              <div className="field">
+                <label htmlFor="dept-select">Phân ban / nhóm sinh hoạt</label>
+                <SelectBox
+                  label="Chọn ban / nhóm"
+                  value={selectedDept}
+                  onChange={setSelectedDept}
+                  options={[
+                    { value: "Ban Thành viên", label: "Ban Thành viên (Chung)" },
+                    { value: "Ban Chuyên môn", label: "Ban Chuyên môn / Học thuật" },
+                    { value: "Ban Kỹ thuật", label: "Ban Kỹ thuật / Dự án" },
+                    { value: "Ban Truyền thông", label: "Ban Truyền thông & Báo chí" },
+                    { value: "Ban Sự kiện", label: "Ban Sự kiện & Hoạt động" },
+                    { value: "Ban Đối ngoại", label: "Ban Đối ngoại & Tài trợ" },
+                  ]}
+                />
+              </div>
+            </div>
+            <div className="editor-footer">
+              <Button
+                variant="outline"
+                onClick={() => setApproveModal(null)}
+              >
+                Hủy
+              </Button>
+              <Button
+                onClick={async () => {
+                  await mutate(
+                    "join-requests/" + approveModal.request_id,
+                    {
+                      status: "APPROVED",
+                      department_name: selectedDept,
+                    },
+                    "PATCH",
+                  );
+                  toast.success("Đã duyệt sinh viên vào câu lạc bộ!");
+                  setApproveModal(null);
+                  refresh();
+                }}
+              >
+                Xác nhận kết nạp
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {rejectModal && (
+        <Confirm
+          title="Từ chối đơn gia nhập?"
+          description={`Bạn có chắc muốn từ chối đơn của sinh viên ${rejectModal.full_name} (${rejectModal.student_code || rejectModal.email})?`}
+          reason={true}
+          onClose={() => setRejectModal(null)}
+          onConfirm={async (reason: string) => {
+            await mutate(
+              "join-requests/" + rejectModal.request_id,
+              {
+                status: "REJECTED",
+                reason,
+              },
+              "PATCH",
+            );
+            toast.success("Đã từ chối đơn đăng ký.");
+            setRejectModal(null);
+            refresh();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 export function Members() {
   const { can, mutate, club, refresh } = useApp(),
     f = useFilters(),
@@ -140,16 +359,9 @@ export function Members() {
     options = useResource("options");
   const isOfficerOrLeader = can("OFFICER", "LEADER");
   const [tab, setTab] = useState<"members" | "requests">("members");
-  const reqFilter = useFilters();
-  const reqResource = useResource(
-    tab === "requests" ? "join-requests?" + reqFilter.query : null,
-  );
   const pendingRequests = useResource(
     isOfficerOrLeader ? "join-requests?status=PENDING" : null,
   );
-  const [approveModal, setApproveModal] = useState<Row | null>(null);
-  const [rejectModal, setRejectModal] = useState<Row | null>(null);
-  const [selectedDept, setSelectedDept] = useState("Ban Thành viên");
   const [editing, setEditing] = useState<Row | null>(
     typeof window !== "undefined" && window.location.hash.includes("?new")
       ? {}
@@ -296,199 +508,9 @@ export function Members() {
           </LoadState>
         </section>
       ) : (
-        <section className="panel">
-          <Filters
-            q={reqFilter.q}
-            setQ={reqFilter.setQ}
-            status={reqFilter.status}
-            setStatus={reqFilter.setStatus}
-            statuses={["PENDING", "APPROVED", "REJECTED"]}
-          />
-          <LoadState {...reqResource} variant="table">
-            <DataTable
-              data={reqResource.data}
-              page={reqFilter.page}
-              setPage={reqFilter.setPage}
-              columns={[
-                {
-                  key: "student",
-                  title: "SINH VIÊN",
-                  render: (r: Row) => (
-                    <div className="person-cell">
-                      <Avatar name={r.full_name} />
-                      <div>
-                        <strong>{r.full_name}</strong>
-                        <small>{r.student_code || r.email || r.username}</small>
-                      </div>
-                    </div>
-                  ),
-                },
-                {
-                  key: "faculty",
-                  title: "KHOA / LỚP",
-                  render: (r: Row) => (
-                    <span>
-                      {r.faculty || "—"}
-                      {r.class_name ? ` · ${r.class_name}` : ""}
-                    </span>
-                  ),
-                },
-                {
-                  key: "contact",
-                  title: "LIÊN HỆ",
-                  render: (r: Row) => (
-                    <div className="text-xs leading-relaxed">
-                      <div>{r.email || "—"}</div>
-                      <div className="text-muted">{r.phone || ""}</div>
-                    </div>
-                  ),
-                },
-                {
-                  key: "message",
-                  title: "LỜI NHẮN / NGUYỆN VỌNG",
-                  render: (r: Row) => (
-                    <span
-                      className="line-clamp-2 max-w-xs text-xs"
-                      title={r.message || ""}
-                    >
-                      {r.message || "—"}
-                    </span>
-                  ),
-                },
-                {
-                  key: "created_at",
-                  title: "NGÀY NỘP",
-                  render: (r: Row) => dateText(r.created_at, true),
-                },
-                {
-                  key: "status",
-                  title: "TRẠNG THÁI",
-                  render: (r: Row) => <Badge value={r.status} />,
-                },
-                {
-                  key: "actions",
-                  title: "",
-                  render: (r: Row) =>
-                    r.status === "PENDING" ? (
-                      <div className="flex items-center gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="default"
-                          onClick={() => setApproveModal(r)}
-                        >
-                          Duyệt
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setRejectModal(r)}
-                        >
-                          Từ chối
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted">
-                        {r.reviewer_name
-                          ? `${r.status === "APPROVED" ? "Duyệt" : "Từ chối"}: ${r.reviewer_name}`
-                          : "—"}
-                      </span>
-                    ),
-                },
-              ]}
-            />
-          </LoadState>
-        </section>
+        <JoinRequestsSection hideTitle={true} />
       )}
 
-      {approveModal && (
-        <Dialog open onOpenChange={(v) => !v && setApproveModal(null)}>
-          <DialogContent className="editor-dialog">
-            <DialogHeader>
-              <DialogTitle>Duyệt đơn gia nhập câu lạc bộ</DialogTitle>
-              <DialogDescription>
-                Phê duyệt sinh viên <strong>{approveModal.full_name}</strong> (
-                {approveModal.student_code || approveModal.email}) vào câu lạc
-                bộ.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              {approveModal.message && (
-                <div className="bg-muted p-3.5 rounded-xl text-sm">
-                  <span className="text-muted block text-xs mb-1 font-medium">
-                    Lời nhắn của sinh viên:
-                  </span>
-                  <p className="italic font-normal">
-                    "{approveModal.message}"
-                  </p>
-                </div>
-              )}
-              <div className="field">
-                <label htmlFor="dept-select">Phân ban / nhóm sinh hoạt</label>
-                <SelectBox
-                  label="Chọn ban / nhóm"
-                  value={selectedDept}
-                  onChange={setSelectedDept}
-                  options={[
-                    { value: "Ban Thành viên", label: "Ban Thành viên (Chung)" },
-                    { value: "Ban Chuyên môn", label: "Ban Chuyên môn / Học thuật" },
-                    { value: "Ban Kỹ thuật", label: "Ban Kỹ thuật / Dự án" },
-                    { value: "Ban Truyền thông", label: "Ban Truyền thông & Báo chí" },
-                    { value: "Ban Sự kiện", label: "Ban Sự kiện & Hoạt động" },
-                    { value: "Ban Đối ngoại", label: "Ban Đối ngoại & Tài trợ" },
-                  ]}
-                />
-              </div>
-            </div>
-            <div className="editor-footer">
-              <Button
-                variant="outline"
-                onClick={() => setApproveModal(null)}
-              >
-                Hủy
-              </Button>
-              <Button
-                onClick={async () => {
-                  await mutate(
-                    "join-requests/" + approveModal.request_id,
-                    {
-                      status: "APPROVED",
-                      department_name: selectedDept,
-                    },
-                    "PATCH",
-                  );
-                  toast.success("Đã duyệt sinh viên vào câu lạc bộ!");
-                  setApproveModal(null);
-                  refresh();
-                }}
-              >
-                Xác nhận kết nạp
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {rejectModal && (
-        <Confirm
-          title="Từ chối đơn gia nhập?"
-          description={`Bạn có chắc muốn từ chối đơn của sinh viên ${rejectModal.full_name} (${rejectModal.student_code || rejectModal.email})?`}
-          reason={true}
-          onClose={() => setRejectModal(null)}
-          onConfirm={async (reason: string) => {
-            await mutate(
-              "join-requests/" + rejectModal.request_id,
-              {
-                status: "REJECTED",
-                reason,
-              },
-              "PATCH",
-            );
-            toast.success("Đã từ chối đơn đăng ký.");
-            setRejectModal(null);
-            refresh();
-          }}
-        />
-      )}
       {editing && (
         <Editor
           title={
@@ -1012,10 +1034,11 @@ export function ClubSettings() {
   );
 }
 export function Profile() {
-  const { mutate, logout, reloadSession, session } = useApp(),
+  const { mutate, logout, reloadSession, session, refresh, navigate } = useApp(),
     r = useResource("profile");
   const [edit, setEdit] = useState(false),
-    [password, setPassword] = useState(false);
+    [password, setPassword] = useState(false),
+    [leaveModal, setLeaveModal] = useState(false);
   return (
     <>
       <PageTitle
@@ -1045,6 +1068,19 @@ export function Profile() {
                   <small>
                     Gia nhập {dateText(r.data.membership.join_date)}
                   </small>
+                  {r.data.membership.member_status === "ACTIVE" && (
+                    <div className="w-full pt-3">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 text-xs w-full"
+                        onClick={() => setLeaveModal(true)}
+                      >
+                        <LogOut size={14} className="mr-1.5" />
+                        Rời câu lạc bộ này
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
             </section>
@@ -1131,6 +1167,22 @@ export function Profile() {
           onClose={() => setPassword(false)}
         />
       )}
+      {leaveModal && (
+        <Confirm
+          title="Rời câu lạc bộ?"
+          description="Bạn có chắc chắn muốn rời câu lạc bộ này không? Bạn sẽ không còn quyền truy cập vào các hoạt động và dữ liệu nội bộ của CLB."
+          reason={true}
+          onClose={() => setLeaveModal(false)}
+          onConfirm={async (reason: string) => {
+            await mutate(`clubs/${session.club_id}/leave`, { reason }, "POST");
+            toast.success("Bạn đã rời câu lạc bộ thành công.");
+            setLeaveModal(false);
+            await reloadSession(0);
+            navigate("dashboard");
+            refresh();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -1214,9 +1266,10 @@ export function Audit() {
 }
 
 export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
-  const { session, switchClub, mutate, refresh } = useApp();
+  const { session, switchClub, mutate, refresh, reloadSession } = useApp();
   const r = useResource("clubs");
   const [applyingClub, setApplyingClub] = useState<Row | null>(null);
+  const [leavingClub, setLeavingClub] = useState<Row | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -1269,13 +1322,25 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
               </small>
               <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
                 {c.is_member ? (
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => switchClub(c.club_id, "dashboard")}
-                  >
-                    Vào không gian CLB <ArrowUpRight size={15} />
-                  </Button>
+                  <div className="flex items-center gap-2 w-full">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => switchClub(c.club_id, "dashboard")}
+                    >
+                      Vào không gian CLB <ArrowUpRight size={15} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                      onClick={() => setLeavingClub(c)}
+                      title="Rời câu lạc bộ"
+                    >
+                      <LogOut size={15} />
+                      <span className="hidden sm:inline">Rời CLB</span>
+                    </Button>
+                  </div>
                 ) : c.join_request?.status === "PENDING" ? (
                   <div className="flex items-center justify-between w-full text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-xl border border-amber-200">
                     <span className="inline-flex items-center gap-1 font-medium">
@@ -1404,6 +1469,21 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
             </div>
           </DialogContent>
         </Dialog>
+      )}
+      {leavingClub && (
+        <Confirm
+          title={`Rời câu lạc bộ ${leavingClub.club_name}?`}
+          description="Bạn có chắc chắn muốn rời câu lạc bộ này không? Bạn sẽ không còn quyền truy cập vào các hoạt động và tài nguyên nội bộ của CLB."
+          reason={true}
+          onClose={() => setLeavingClub(null)}
+          onConfirm={async (reason: string) => {
+            await mutate(`clubs/${leavingClub.club_id}/leave`, { reason }, "POST");
+            toast.success(`Bạn đã rời câu lạc bộ ${leavingClub.club_name}.`);
+            setLeavingClub(null);
+            await reloadSession(0);
+            refresh();
+          }}
+        />
       )}
     </>
   );

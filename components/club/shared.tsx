@@ -1077,6 +1077,7 @@ export function Metric({
   label,
   value,
   caption,
+  note,
   icon: Icon,
   tone = "green",
 }: any) {
@@ -1089,7 +1090,7 @@ export function Metric({
         </span>
       </div>
       <strong>{value}</strong>
-      <p>{caption}</p>
+      <p>{caption || note}</p>
     </div>
   );
 }

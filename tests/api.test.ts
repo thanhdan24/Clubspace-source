@@ -1095,3 +1095,236 @@ test("Club join application and review workflow: submit, duplicate prevention, r
   assert.equal(reqRecord.status, "REJECTED");
   assert.equal(reqRecord.review_reason, "Chưa đạt chỉ tiêu đợt tuyển này");
 });
+
+test("Forgot password and reset password flow: verifies ownership, rejects invalid OTP/data, updates password and invalidates sessions", async () => {
+  // 1. Rejects unknown username
+  const badUser = await call("", "auth/forgot-password", "POST", {
+    username: "non_existent_user_999",
+    verify: "someone@ptit.edu.vn",
+  });
+  assert.equal(badUser.status, 400);
+
+  // 2. Rejects mismatched email/MSSV
+  const wrongVerify = await call("", "auth/forgot-password", "POST", {
+    username: "leader_it",
+    verify: "wrong_email@gmail.com",
+  });
+  assert.equal(wrongVerify.status, 400);
+  assert.match(wrongVerify.data.error, /không khớp/);
+
+  // 3. Accepts matching username + email (or MSSV)
+  const forgotOk = await call("", "auth/forgot-password", "POST", {
+    username: "leader_it",
+    verify: "minhanh@svclub.local",
+  });
+  assert.equal(forgotOk.status, 200);
+  assert.equal(forgotOk.data.ok, true);
+  assert.equal(typeof forgotOk.data.reset_token, "string");
+  assert.equal(typeof forgotOk.data.otp_code, "string");
+  assert.equal(forgotOk.data.otp_code.length, 6);
+
+  const resetToken = forgotOk.data.reset_token;
+  const otpCode = forgotOk.data.otp_code;
+
+  // 4. Rejects invalid OTP
+  const badOtp = await call("", "auth/reset-password", "POST", {
+    reset_token: resetToken,
+    otp: "000000",
+    password: "NewPassword1234!",
+  });
+  assert.equal(badOtp.status, 400);
+  assert.match(badOtp.data.error, /OTP không đúng/);
+
+  // 5. Rejects password less than 10 characters (Zod schema validation -> 422)
+  const shortPass = await call("", "auth/reset-password", "POST", {
+    reset_token: resetToken,
+    otp: otpCode,
+    password: "short",
+  });
+  assert.equal(shortPass.status, 422);
+
+  // 6. Successfully resets password with valid OTP and >=10 char password
+  const newPassword = "BrandNewSecurePassword123!";
+  const resetOk = await call("", "auth/reset-password", "POST", {
+    reset_token: resetToken,
+    otp: otpCode,
+    password: newPassword,
+  });
+  assert.equal(resetOk.status, 200);
+  assert.equal(resetOk.data.ok, true);
+
+  // 7. Old password no longer works
+  const oldLogin = await call("", "auth/login", "POST", {
+    username: "leader_it",
+    password: env.DEMO_PASSWORD,
+  });
+  assert.equal(oldLogin.status, 401);
+
+  // 8. New password logs in successfully
+  const newLogin = await call("", "auth/login", "POST", {
+    username: "leader_it",
+    password: newPassword,
+  });
+  assert.equal(newLogin.status, 200);
+  assert.equal(newLogin.data.user.username, "leader_it");
+
+  // 9. Reset token cannot be reused
+  const reuseToken = await call("", "auth/reset-password", "POST", {
+    reset_token: resetToken,
+    otp: otpCode,
+    password: "AnotherPassword123!",
+  });
+  assert.equal(reuseToken.status, 400);
+
+  // Restore original password for any subsequent tests/fixtures
+  const originalHash = sql("SELECT password_hash FROM USERS WHERE username='officer_it'").password_hash;
+  sqlite.prepare("UPDATE USERS SET password_hash=? WHERE username='leader_it'").run(originalHash);
+});
+
+test("Leave club workflow: voluntary leave, role deactivation, status history, and last leader protection", async () => {
+  // 1. Leader cannot leave if sole leader
+  // Temporarily deactivate all other leaders in Club 1 so demo_leader is the ONLY active leader
+  sqlite.prepare("UPDATE USER_ROLES SET active_flag=0 WHERE club_id=1 AND role_id=2 AND user_id<>10002").run();
+  const leaderLeave = await call("LEADER", "clubs/1/leave", "POST", {
+    reason: "Thử rời CLB",
+  }, 1);
+  assert.equal(leaderLeave.status, 400);
+  assert.match(leaderLeave.data.error, /Chủ nhiệm duy nhất/);
+  // Restore leaders in Club 1
+  sqlite.prepare("UPDATE USER_ROLES SET active_flag=1 WHERE club_id=1 AND role_id=2").run();
+
+  // 2. Member leaves club voluntarily
+  const memberLeave = await call("MEMBER", "clubs/1/leave", "POST", {
+    reason: "Bận việc học kỳ cuối",
+  }, 1);
+  assert.equal(memberLeave.status, 200);
+  assert.equal(memberLeave.data.ok, true);
+
+  // 3. Member status is now LEFT
+  const memberRow = sql(
+    "SELECT cm.*, ur.active_flag FROM CLUB_MEMBERS cm JOIN USER_ROLES ur ON ur.user_id=cm.user_id AND ur.club_id=cm.club_id WHERE cm.club_id=1 AND cm.user_id=(SELECT user_id FROM USERS WHERE username='demo_member')",
+  );
+  assert.equal(memberRow.member_status, "LEFT");
+  assert.equal(memberRow.active_flag, 0);
+
+  // 4. Status history is recorded
+  const history = sql(
+    "SELECT * FROM MEMBER_STATUS_HISTORY WHERE club_member_id=? ORDER BY history_id DESC LIMIT 1",
+    memberRow.club_member_id,
+  );
+  assert.equal(history.new_status, "LEFT");
+  assert.equal(history.reason, "Bận việc học kỳ cuối");
+
+  // Restore member for fixture consistency
+  sqlite.prepare("UPDATE CLUB_MEMBERS SET member_status='ACTIVE', leave_date=null WHERE club_member_id=?").run(memberRow.club_member_id);
+  sqlite.prepare("UPDATE USER_ROLES SET active_flag=1 WHERE club_id=1 AND user_id=(SELECT user_id FROM USERS WHERE username='demo_member')").run();
+});
+
+test("Admin overview: only ADMIN can access, returns system-wide macro stats", async () => {
+  // 1. Non-admin is rejected with 403
+  const memberRes = await call("MEMBER", "admin/overview");
+  assert.equal(memberRes.status, 403);
+
+  const leaderRes = await call("LEADER", "admin/overview");
+  assert.equal(leaderRes.status, 403);
+
+  // 2. ADMIN accesses successfully
+  const adminRes = await call("ADMIN", "admin/overview");
+  assert.equal(adminRes.status, 200);
+  assert.ok(adminRes.data.clubs.total >= 1);
+  assert.ok(adminRes.data.accounts.total >= 1);
+  assert.ok(Array.isArray(adminRes.data.recentClubs));
+  assert.ok(Array.isArray(adminRes.data.recentAudits));
+});
+
+test("Route verification: all 16 application routes work correctly with appropriate role access and valid data", async () => {
+  // Route 1: Dashboard (Admin: admin/overview, Club: dashboard)
+  const rAdminDashboard = await call("ADMIN", "admin/overview");
+  assert.equal(rAdminDashboard.status, 200);
+  const rClubDashboard = await call("LEADER", "dashboard", "GET", undefined, 1);
+  assert.equal(rClubDashboard.status, 200);
+
+  // Route 2: Explore Clubs (clubs and join-requests)
+  const rExplore = await call("MEMBER", "clubs");
+  assert.equal(rExplore.status, 200);
+  assert.ok(Array.isArray(rExplore.data.rows || rExplore.data.clubs || rExplore.data));
+
+  // Route 3: Members (members)
+  const rMembers = await call("LEADER", "members", "GET", undefined, 1);
+  assert.equal(rMembers.status, 200);
+  assert.ok(Array.isArray(rMembers.data.rows || rMembers.data.members || rMembers.data));
+
+  // Route 4: Events list (events)
+  const rEvents = await call("MEMBER", "events", "GET", undefined, 1);
+  assert.equal(rEvents.status, 200);
+  assert.ok(Array.isArray(rEvents.data.rows || rEvents.data.events || rEvents.data));
+
+  // Route 5: Event detail (events/:id and registrations)
+  const rEventDetail = await call("MEMBER", "events/1", "GET", undefined, 1);
+  assert.equal(rEventDetail.status, 200);
+  const rAttendees = await call("LEADER", "events/1/registrations", "GET", undefined, 1);
+  assert.equal(rAttendees.status, 200);
+  assert.ok(Array.isArray(rAttendees.data.rows || rAttendees.data));
+
+  // Route 6: Finance (finance)
+  const rFinance = await call("TREASURER", "finance", "GET", undefined, 1);
+  assert.equal(rFinance.status, 200);
+  assert.ok(Array.isArray(rFinance.data.rows || rFinance.data));
+
+  // Route 7: Approvals (finance with status=PENDING_APPROVAL)
+  const rApprovals = await call("LEADER", "finance?status=PENDING_APPROVAL", "GET", undefined, 1);
+  assert.equal(rApprovals.status, 200);
+  assert.ok(Array.isArray(rApprovals.data.rows || rApprovals.data));
+
+  // Route 8: Categories (categories)
+  const rCategories = await call("TREASURER", "categories", "GET", undefined, 1);
+  assert.equal(rCategories.status, 200);
+  assert.ok(Array.isArray(rCategories.data.rows || rCategories.data.categories || rCategories.data));
+
+  // Route 9: Reports (reports?type=events, reports?type=finance, reports?type=members)
+  const rRepFinance = await call("LEADER", "reports?type=finance", "GET", undefined, 1);
+  assert.equal(rRepFinance.status, 200);
+  const rRepEvents = await call("LEADER", "reports?type=events", "GET", undefined, 1);
+  assert.equal(rRepEvents.status, 200);
+  const rRepMembers = await call("LEADER", "reports?type=members", "GET", undefined, 1);
+  assert.equal(rRepMembers.status, 200);
+
+  // Route 10: Accounts (accounts - Admin only)
+  const rAccounts = await call("ADMIN", "accounts");
+  assert.equal(rAccounts.status, 200);
+  assert.ok(Array.isArray(rAccounts.data.rows || rAccounts.data.accounts || rAccounts.data));
+
+  // Route 11: Clubs (clubs - Admin only)
+  const rClubs = await call("ADMIN", "clubs");
+  assert.equal(rClubs.status, 200);
+  assert.ok(Array.isArray(rClubs.data.rows || rClubs.data.clubs || rClubs.data));
+
+  // Route 12: Roles (roles - Admin / Leader)
+  const rRolesAdmin = await call("ADMIN", "roles");
+  assert.equal(rRolesAdmin.status, 200);
+  const rRolesLeader = await call("LEADER", "roles", "GET", undefined, 1);
+  assert.equal(rRolesLeader.status, 200);
+  assert.ok(Array.isArray(rRolesLeader.data.rows || rRolesLeader.data.roles || rRolesLeader.data));
+
+  // Route 13: Audit log (audit - Admin / Leader)
+  const rAudit = await call("ADMIN", "audit");
+  assert.equal(rAudit.status, 200);
+  assert.ok(Array.isArray(rAudit.data.rows || rAudit.data.audits || rAudit.data));
+
+  // Route 14: Settings (club - Leader / Admin)
+  const rSettings = await call("LEADER", "club", "GET", undefined, 1);
+  assert.equal(rSettings.status, 200);
+
+  // Route 15: Profile (profile)
+  const rProfile = await call("MEMBER", "profile");
+  assert.equal(rProfile.status, 200);
+
+  // Route 16: Registrations (my-registrations - Member)
+  const rRegistrations = await call("MEMBER", "my-registrations", "GET", undefined, 1);
+  assert.equal(rRegistrations.status, 200);
+  assert.ok(Array.isArray(rRegistrations.data.rows || rRegistrations.data.registrations || rRegistrations.data));
+});
+
+
+
+

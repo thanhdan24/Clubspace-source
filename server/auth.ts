@@ -139,6 +139,174 @@ export async function authRoute(
       ]);
     return json({ ok: true }, 200, { "Set-Cookie": cookie(req, "", 0) });
   }
+  if (path === "auth/forgot-password" && req.method === "POST") {
+    const b = z
+      .object({
+        username: str(50),
+        verify: z
+          .string()
+          .trim()
+          .min(1, "Vui lòng nhập Email hoặc Mã sinh viên.")
+          .max(150),
+      })
+      .parse(await body(req));
+    const identifier = await digest("forgot:" + b.username.toLowerCase());
+    const tries = await one(
+      db,
+      "SELECT COUNT(*) AS n FROM AUTH_ATTEMPTS WHERE identifier=? AND attempted_at>?",
+      [identifier, Date.now() - 900000],
+    );
+    fail(
+      Number(tries?.n) < 5,
+      "Quá nhiều yêu cầu khôi phục mật khẩu. Vui lòng thử lại sau 15 phút.",
+      429,
+    );
+    const user = await one(
+      db,
+      "SELECT * FROM USERS WHERE LOWER(username)=LOWER(?) OR LOWER(student_code)=LOWER(?)",
+      [b.username, b.username],
+    );
+    const verifyInput = b.verify.toLowerCase().trim();
+    const emailMatch =
+      user?.email && user.email.toLowerCase().trim() === verifyInput;
+    const studentCodeMatch =
+      user?.student_code &&
+      user.student_code.toLowerCase().trim() === verifyInput;
+    const phoneMatch = user?.phone && user.phone.trim() === verifyInput;
+
+    if (
+      !user ||
+      user.account_status !== "ACTIVE" ||
+      (!emailMatch && !studentCodeMatch && !phoneMatch)
+    ) {
+      await execute(
+        db,
+        "INSERT INTO AUTH_ATTEMPTS(identifier,attempted_at) VALUES (?,?)",
+        [identifier, Date.now()],
+      );
+      throw new ApiError(
+        400,
+        "Thông tin xác minh không khớp hoặc tài khoản không hoạt động.",
+      );
+    }
+    await execute(
+      db,
+      "DELETE FROM AUTH_ATTEMPTS WHERE identifier=? OR attempted_at<?",
+      [identifier, Date.now() - 86400000],
+    );
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const ts = Date.now();
+    const sig = await digest(
+      `${user.user_id}:${otp}:${String(user.password_hash).slice(-10)}:${ts}:clubspace_reset_salt`,
+    );
+    const resetToken = `${user.user_id}.${ts}.${sig}`;
+    const maskedTarget = user.email
+      ? user.email.replace(
+          /^(.)(.*)(@.*)$/,
+          (_: string, a: string, b: string, c: string) =>
+            a + "*".repeat(Math.max(2, b.length)) + c,
+        )
+      : user.student_code
+        ? user.student_code.slice(0, 2) + "****" + user.student_code.slice(-2)
+        : "thông tin xác thực";
+
+    return json({
+      ok: true,
+      reset_token: resetToken,
+      otp_code: otp,
+      full_name: user.full_name,
+      username: user.username,
+      masked_target: maskedTarget,
+      message:
+        "Xác thực tài khoản thành công. Vui lòng nhập mã xác nhận OTP và mật khẩu mới.",
+    });
+  }
+  if (path === "auth/reset-password" && req.method === "POST") {
+    const b = z
+      .object({
+        reset_token: str(250),
+        otp: z.string().trim().length(6, "Mã xác thực OTP gồm 6 chữ số."),
+        password: z
+          .string()
+          .min(10, "Mật khẩu mới cần ít nhất 10 ký tự.")
+          .max(72, "Mật khẩu tối đa 72 ký tự."),
+      })
+      .parse(await body(req));
+    const parts = b.reset_token.split(".");
+    fail(parts.length === 3, "Phiên đặt lại mật khẩu không hợp lệ.", 400);
+    const [userIdStr, tsStr, sig] = parts;
+    const userId = Number(userIdStr);
+    const ts = Number(tsStr);
+    fail(userId > 0 && !isNaN(ts), "Phiên đặt lại mật khẩu không hợp lệ.", 400);
+    fail(
+      Date.now() - ts < 15 * 60 * 1000,
+      "Mã xác thực đã hết hạn (quá 15 phút). Vui lòng thực hiện lại.",
+      400,
+    );
+    const identifier = await digest("reset:" + userId);
+    const tries = await one(
+      db,
+      "SELECT COUNT(*) AS n FROM AUTH_ATTEMPTS WHERE identifier=? AND attempted_at>?",
+      [identifier, Date.now() - 900000],
+    );
+    fail(
+      Number(tries?.n) < 5,
+      "Quá nhiều lần nhập sai mã xác thực. Vui lòng thử lại sau 15 phút.",
+      429,
+    );
+    const user = await one(
+      db,
+      "SELECT * FROM USERS WHERE user_id=? AND account_status='ACTIVE'",
+      [userId],
+    );
+    if (!user) {
+      throw new ApiError(404, "Tài khoản không tồn tại hoặc đã bị khóa.");
+    }
+    const expectedSig = await digest(
+      `${user.user_id}:${b.otp.trim()}:${String(user.password_hash).slice(-10)}:${ts}:clubspace_reset_salt`,
+    );
+    if (sig !== expectedSig) {
+      await execute(
+        db,
+        "INSERT INTO AUTH_ATTEMPTS(identifier,attempted_at) VALUES (?,?)",
+        [identifier, Date.now()],
+      );
+      throw new ApiError(
+        400,
+        "Mã xác thực OTP không đúng hoặc phiên đã hết hiệu lực.",
+      );
+    }
+    const newHash = await bcrypt.hash(b.password, 12);
+    await execute(
+      db,
+      "UPDATE USERS SET password_hash=?, updated_at=? WHERE user_id=?",
+      [newHash, now(), user.user_id],
+    );
+    await execute(db, "DELETE FROM AUTH_SESSIONS WHERE user_id=?", [
+      user.user_id,
+    ]);
+    await execute(
+      db,
+      "DELETE FROM AUTH_ATTEMPTS WHERE identifier=?",
+      [identifier],
+    );
+    await execute(
+      db,
+      "INSERT INTO AUDIT_LOGS (user_id,club_id,action_code,entity_name,entity_id,old_value,new_value,created_at) VALUES (?,null,'RESET_PASSWORD','USERS',?,null,?,?)",
+      [
+        user.user_id,
+        String(user.user_id),
+        JSON.stringify({ reset: true }),
+        now(),
+      ],
+    );
+    return json({
+      ok: true,
+      username: user.username,
+      message:
+        "Đặt lại mật khẩu thành công! Bạn có thể đăng nhập bằng mật khẩu mới.",
+    });
+  }
   return null;
 }
 export async function context(
@@ -183,7 +351,7 @@ export async function context(
       403,
     );
   const accountOrSettings =
-    /^\/api\/(club|clubs(?:\/\d+\/join)?|my-join-requests|join-requests(?:\/\d+)?|profile(?:\/password)?|accounts(?:\/\d+)?|roles|role-catalog)\/?$/.test(
+    /^\/api\/(club|clubs(?:\/\d+\/(?:join|leave))?|my-join-requests|join-requests(?:\/\d+)?|profile(?:\/password)?|accounts(?:\/\d+)?|roles|role-catalog|admin\/overview)\/?$/.test(
       new URL(req.url).pathname,
     );
   if (club && req.method !== "GET" && !accountOrSettings && !isPublicEventAccess) {

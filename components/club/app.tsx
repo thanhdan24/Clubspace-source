@@ -25,6 +25,11 @@ import {
   EyeOff,
   Sparkles,
   Compass,
+  KeyRound,
+  Mail,
+  ArrowLeft,
+  CheckCircle2,
+  Check,
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import {
@@ -52,7 +57,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { AppContext, fetchApi, Avatar, labels, SelectBox, prefetchResource, clearResourceCache } from "./shared";
-import Dashboard from "./dashboard";
+import Dashboard, { AdminDashboard } from "./dashboard";
 import WebTools from "./web-tools";
 import Notifications from "./notifications";
 import {
@@ -66,7 +71,7 @@ import {
   ExploreClubs,
 } from "./people-pages";
 import { Events, EventDetail, MyRegistrations } from "./event-pages";
-import { Finance, Categories, Reports } from "./finance-pages";
+import { Finance, Categories, Reports, ApprovalCenter } from "./finance-pages";
 const navigation = [
   { id: "dashboard", label: "Tổng quan", icon: LayoutDashboard, roles: [] },
   { id: "explore-clubs", label: "Khám phá CLB", icon: Compass, roles: [] },
@@ -87,7 +92,7 @@ const navigation = [
     id: "approvals",
     label: "Phê duyệt",
     icon: CheckCheck,
-    roles: ["LEADER", "TREASURER"],
+    roles: ["LEADER"],
   },
   { id: "reports", label: "Báo cáo & thống kê", icon: BarChart3, roles: [] },
   {
@@ -125,6 +130,21 @@ const management = [
     roles: ["ADMIN", "LEADER"],
   },
 ];
+const adminNavigation = [
+  { id: "dashboard", label: "Tổng quan hệ thống", icon: LayoutDashboard, roles: ["ADMIN"] },
+  { id: "accounts", label: "Tài khoản người dùng", icon: UserRound, roles: ["ADMIN"] },
+  { id: "clubs", label: "Quản lý câu lạc bộ", icon: Building2, roles: ["ADMIN"] },
+  { id: "roles", label: "Phân quyền hệ thống", icon: ShieldCheck, roles: ["ADMIN"] },
+  { id: "audit", label: "Nhật ký hoạt động", icon: History, roles: ["ADMIN"] },
+];
+const adminSupervision = [
+  { id: "explore-clubs", label: "Khám phá CLB", icon: Compass, roles: ["ADMIN"] },
+  { id: "members", label: "Thành viên CLB", icon: Users, roles: ["ADMIN"] },
+  { id: "events", label: "Sự kiện CLB", icon: CalendarDays, roles: ["ADMIN"] },
+  { id: "finance", label: "Tài chính CLB", icon: Wallet, roles: ["ADMIN"] },
+  { id: "reports", label: "Báo cáo CLB", icon: BarChart3, roles: ["ADMIN"] },
+  { id: "settings", label: "Cài đặt CLB", icon: Settings, roles: ["ADMIN"] },
+];
 function Brand() {
   return (
     <div className="brand">
@@ -146,14 +166,35 @@ const roleInfo: Record<string, { label: string; icon: string; desc: string }> = 
 };
 
 function Login({ onLogin, demo }: any) {
-  const [username, setUsername] = useState(""),
-    [password, setPassword] = useState(""),
-    [showPassword, setShowPassword] = useState(false),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState("");
+  const [mode, setMode] = useState<"login" | "forgot">("login");
+  const [forgotStep, setForgotStep] = useState<1 | 2>(1);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+  const [busy, setBusy] = useState("");
+
+  // Forgot password form states
+  const [forgotUser, setForgotUser] = useState("");
+  const [forgotVerify, setForgotVerify] = useState("");
+  const [forgotData, setForgotData] = useState<{
+    reset_token: string;
+    otp_code: string;
+    full_name: string;
+    username: string;
+    masked_target: string;
+  } | null>(null);
+  const [otpInput, setOtpInput] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   async function signIn(role?: string) {
     setBusy(role || "login");
     setError("");
+    setSuccessMsg("");
     try {
       await fetchApi(role ? "auth/demo" : "auth/login", 0, {
         method: "POST",
@@ -166,6 +207,72 @@ function Login({ onLogin, demo }: any) {
       setBusy("");
     }
   }
+
+  async function handleForgotVerify(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setBusy("forgot-verify");
+    try {
+      const res = await fetchApi("auth/forgot-password", 0, {
+        method: "POST",
+        body: JSON.stringify({
+          username: forgotUser.trim(),
+          verify: forgotVerify.trim(),
+        }),
+      });
+      setForgotData(res);
+      setOtpInput(res.otp_code || "");
+      setForgotStep(2);
+      toast.success("Xác minh thành công! Mã OTP đã được cấp.");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleResetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (!otpInput || otpInput.trim().length !== 6) {
+      setError("Vui lòng nhập đủ 6 chữ số mã xác thực OTP.");
+      return;
+    }
+    if (newPassword.length < 10) {
+      setError("Mật khẩu mới cần ít nhất 10 ký tự.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Mật khẩu xác nhận không khớp với mật khẩu mới.");
+      return;
+    }
+    setBusy("reset-password");
+    try {
+      await fetchApi("auth/reset-password", 0, {
+        method: "POST",
+        body: JSON.stringify({
+          reset_token: forgotData?.reset_token,
+          otp: otpInput.trim(),
+          password: newPassword,
+        }),
+      });
+      toast.success("Đặt lại mật khẩu thành công!");
+      setUsername(forgotData?.username || forgotUser);
+      setPassword("");
+      setSuccessMsg("Đặt lại mật khẩu thành công! Bạn có thể đăng nhập bằng mật khẩu mới.");
+      setMode("login");
+      setForgotStep(1);
+      setForgotData(null);
+      setOtpInput("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <div className="login-page">
       <div className="login-story">
@@ -225,100 +332,340 @@ function Login({ onLogin, demo }: any) {
           <Brand />
         </div>
         <div className="login-card-container">
-          <div className="login-form">
-            <div className="login-header-group">
-              <span className="login-icon">
-                <LockKeyhole size={22} />
-              </span>
-              <div>
-                <h2>Đăng nhập</h2>
-                <p>Nhập thông tin tài khoản để vào không gian sinh hoạt của bạn.</p>
-              </div>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                signIn();
-              }}
-            >
-              <div className="field">
-                <label htmlFor="username">Tên đăng nhập</label>
-                <div className="input-with-icon">
-                  <UserRound size={17} className="input-icon" />
-                  <Input
-                    id="username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    required
-                    maxLength={50}
-                    autoComplete="username"
-                    placeholder="Nhập tên đăng nhập của bạn"
-                  />
+          {mode === "forgot" ? (
+            <div className="login-form">
+              <div className="login-header-group">
+                <span className="login-icon forgot-badge">
+                  <KeyRound size={22} />
+                </span>
+                <div>
+                  <h2>Khôi phục mật khẩu</h2>
+                  <p>
+                    {forgotStep === 1
+                      ? "Xác minh danh tính qua tên đăng nhập và email (hoặc MSSV) đăng ký."
+                      : `Nhập mã xác thực OTP và mật khẩu mới cho ${forgotData?.full_name || forgotUser}.`}
+                  </p>
                 </div>
               </div>
-              <div className="field">
-                <label htmlFor="password">Mật khẩu</label>
-                <div className="input-with-icon">
-                  <LockKeyhole size={17} className="input-icon" />
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    maxLength={200}
-                    autoComplete="current-password"
-                    placeholder="Nhập mật khẩu"
-                  />
+
+              {forgotStep === 1 ? (
+                <form onSubmit={handleForgotVerify}>
+                  <div className="field">
+                    <label htmlFor="forgot-user">Tên đăng nhập</label>
+                    <div className="input-with-icon">
+                      <UserRound size={17} className="input-icon" />
+                      <Input
+                        id="forgot-user"
+                        value={forgotUser}
+                        onChange={(e) => setForgotUser(e.target.value)}
+                        required
+                        maxLength={50}
+                        placeholder="Nhập tên đăng nhập (ví dụ: leader_it, sv230001...)"
+                      />
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="forgot-verify">Email hoặc Mã số sinh viên (MSSV)</label>
+                    <div className="input-with-icon">
+                      <Mail size={17} className="input-icon" />
+                      <Input
+                        id="forgot-verify"
+                        value={forgotVerify}
+                        onChange={(e) => setForgotVerify(e.target.value)}
+                        required
+                        maxLength={150}
+                        placeholder="Nhập email hoặc MSSV đã đăng ký trong hồ sơ"
+                      />
+                    </div>
+                    <small className="field-hint">
+                      Hệ thống đối chiếu với hồ sơ để bảo vệ an toàn danh tính của bạn.
+                    </small>
+                  </div>
+
+                  {error && (
+                    <p role="alert" className="form-error">
+                      {error}
+                    </p>
+                  )}
+
+                  <Button
+                    type="submit"
+                    className="login-submit"
+                    disabled={!!busy}
+                  >
+                    {busy === "forgot-verify" ? (
+                      <Loader2 className="animate-spin" size={16} />
+                    ) : null}
+                    Xác minh tài khoản <ArrowRight size={17} />
+                  </Button>
+
                   <button
                     type="button"
-                    className="password-toggle"
-                    aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-                    onClick={() => setShowPassword(!showPassword)}
+                    className="login-back-btn"
+                    onClick={() => {
+                      setMode("login");
+                      setError("");
+                    }}
                   >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    <ArrowLeft size={15} /> Quay lại đăng nhập
                   </button>
-                </div>
-              </div>
-              {error && (
-                <p role="alert" className="form-error">
-                  {error}
-                </p>
-              )}
-              <Button type="submit" className="login-submit" disabled={!!busy}>
-                {busy === "login" ? <Loader2 className="animate-spin" /> : null}
-                Đăng nhập <ArrowRight size={17} />
-              </Button>
-            </form>
-            {demo && (
-              <div className="demo-login">
-                <div className="divider-label">Tài khoản trải nghiệm nhanh</div>
-                <p>Bấm chọn vai trò để thử giao diện tương ứng:</p>
-                <div className="demo-roles">
-                  {["LEADER", "OFFICER", "TREASURER", "MEMBER", "ADMIN"].map(
-                    (role) => (
-                      <Button
-                        key={role}
-                        disabled={!!busy}
-                        variant="outline"
-                        className={"demo-chip demo-" + role.toLowerCase()}
-                        onClick={() => signIn(role)}
-                        title={roleInfo[role]?.desc}
+                </form>
+              ) : (
+                <form onSubmit={handleResetPassword}>
+                  <div className="otp-verification-card">
+                    <div className="otp-card-header">
+                      <CheckCircle2 size={18} className="otp-card-icon" />
+                      <div>
+                        <strong>Xác minh thành công: {forgotData?.full_name}</strong>
+                        <p className="otp-target-hint">
+                          Thông tin liên kết: {forgotData?.masked_target}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="otp-display-badge">
+                      <span className="otp-label">MÃ XÁC THỰC (OTP):</span>
+                      <span className="otp-value">{forgotData?.otp_code}</span>
+                    </div>
+                    <p className="otp-hint">
+                      Mã OTP có hiệu lực trong 15 phút. Nhập mã này và mật khẩu mới bên dưới.
+                    </p>
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="otp-input">Mã xác thực (OTP 6 chữ số)</label>
+                    <div className="input-with-icon">
+                      <ShieldCheck size={17} className="input-icon" />
+                      <Input
+                        id="otp-input"
+                        value={otpInput}
+                        onChange={(e) =>
+                          setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))
+                        }
+                        required
+                        maxLength={6}
+                        placeholder="Nhập 6 chữ số OTP"
+                        className="otp-code-input"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="new-password">Mật khẩu mới</label>
+                    <div className="input-with-icon">
+                      <LockKeyhole size={17} className="input-icon" />
+                      <Input
+                        id="new-password"
+                        type={showNewPassword ? "text" : "password"}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        required
+                        minLength={10}
+                        maxLength={72}
+                        placeholder="Ít nhất 10 ký tự"
+                      />
+                      <button
+                        type="button"
+                        className="password-toggle"
+                        aria-label={showNewPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                        onClick={() => setShowNewPassword(!showNewPassword)}
                       >
-                        {busy === role ? (
-                          <Loader2 className="animate-spin" size={13} />
-                        ) : null}
-                        <span>{roleInfo[role]?.icon} {roleInfo[role]?.label}</span>
-                      </Button>
-                    ),
+                        {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="confirm-password">Xác nhận mật khẩu mới</label>
+                    <div className="input-with-icon">
+                      <LockKeyhole size={17} className="input-icon" />
+                      <Input
+                        id="confirm-password"
+                        type={showConfirmPassword ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        required
+                        minLength={10}
+                        maxLength={72}
+                        placeholder="Nhập lại mật khẩu mới"
+                      />
+                      <button
+                        type="button"
+                        className="password-toggle"
+                        aria-label={
+                          showConfirmPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"
+                        }
+                        onClick={() =>
+                          setShowConfirmPassword(!showConfirmPassword)
+                        }
+                      >
+                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {error && (
+                    <p role="alert" className="form-error">
+                      {error}
+                    </p>
                   )}
+
+                  <Button
+                    type="submit"
+                    className="login-submit"
+                    disabled={!!busy}
+                  >
+                    {busy === "reset-password" ? (
+                      <Loader2 className="animate-spin" size={16} />
+                    ) : null}
+                    Hoàn tất đổi mật khẩu <Check size={17} />
+                  </Button>
+
+                  <div className="forgot-actions">
+                    <button
+                      type="button"
+                      className="login-back-btn"
+                      onClick={() => {
+                        setForgotStep(1);
+                        setError("");
+                      }}
+                    >
+                      <ArrowLeft size={15} /> Bước trước
+                    </button>
+                    <button
+                      type="button"
+                      className="login-back-btn text-muted"
+                      onClick={() => {
+                        setMode("login");
+                        setError("");
+                      }}
+                    >
+                      Hủy bỏ
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          ) : (
+            <div className="login-form">
+              <div className="login-header-group">
+                <span className="login-icon">
+                  <LockKeyhole size={22} />
+                </span>
+                <div>
+                  <h2>Đăng nhập</h2>
+                  <p>Nhập thông tin tài khoản để vào không gian sinh hoạt của bạn.</p>
                 </div>
               </div>
-            )}
-            <p className="login-help">
-              Chưa có tài khoản? Liên hệ Ban chủ nhiệm câu lạc bộ của bạn để được cấp quyền.
-            </p>
-          </div>
+
+              {successMsg && (
+                <div className="form-success">
+                  <CheckCircle2 size={17} className="shrink-0" />
+                  <span>{successMsg}</span>
+                </div>
+              )}
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  signIn();
+                }}
+              >
+                <div className="field">
+                  <label htmlFor="username">Tên đăng nhập</label>
+                  <div className="input-with-icon">
+                    <UserRound size={17} className="input-icon" />
+                    <Input
+                      id="username"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      required
+                      maxLength={50}
+                      autoComplete="username"
+                      placeholder="Nhập tên đăng nhập của bạn"
+                    />
+                  </div>
+                </div>
+                <div className="field">
+                  <div className="field-header">
+                    <label htmlFor="password">Mật khẩu</label>
+                    <button
+                      type="button"
+                      className="forgot-link"
+                      onClick={() => {
+                        setMode("forgot");
+                        setForgotStep(1);
+                        setError("");
+                        setSuccessMsg("");
+                        if (username) setForgotUser(username);
+                      }}
+                    >
+                      Quên mật khẩu?
+                    </button>
+                  </div>
+                  <div className="input-with-icon">
+                    <LockKeyhole size={17} className="input-icon" />
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      maxLength={200}
+                      autoComplete="current-password"
+                      placeholder="Nhập mật khẩu"
+                    />
+                    <button
+                      type="button"
+                      className="password-toggle"
+                      aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+                {error && (
+                  <p role="alert" className="form-error">
+                    {error}
+                  </p>
+                )}
+                <Button type="submit" className="login-submit" disabled={!!busy}>
+                  {busy === "login" ? <Loader2 className="animate-spin" /> : null}
+                  Đăng nhập <ArrowRight size={17} />
+                </Button>
+              </form>
+              {demo && (
+                <div className="demo-login">
+                  <div className="divider-label">Tài khoản trải nghiệm nhanh</div>
+                  <p>Bấm chọn vai trò để thử giao diện tương ứng:</p>
+                  <div className="demo-roles">
+                    {["LEADER", "OFFICER", "TREASURER", "MEMBER", "ADMIN"].map(
+                      (role) => (
+                        <Button
+                          key={role}
+                          disabled={!!busy}
+                          variant="outline"
+                          className={"demo-chip demo-" + role.toLowerCase()}
+                          onClick={() => signIn(role)}
+                          title={roleInfo[role]?.desc}
+                        >
+                          {busy === role ? (
+                            <Loader2 className="animate-spin" size={13} />
+                          ) : null}
+                          <span>
+                            {roleInfo[role]?.icon} {roleInfo[role]?.label}
+                          </span>
+                        </Button>
+                      ),
+                    )}
+                  </div>
+                </div>
+              )}
+              <p className="login-help">
+                Chưa có tài khoản? Liên hệ Ban chủ nhiệm câu lạc bộ của bạn để được cấp quyền.
+              </p>
+            </div>
+          )}
         </div>
       </main>
     </div>
@@ -447,8 +794,10 @@ export default function ClubApp() {
     [
       ...navigation,
       ...management,
+      ...adminNavigation,
+      ...adminSupervision,
       { id: "profile", label: "Hồ sơ cá nhân" },
-    ].find((n) => n.id === routePath.split("/")[0])?.label || "Sự kiện";
+    ].find((n) => n.id === routePath.split("/")[0])?.label || "Tổng quan";
   const logout = async () => {
     await fetchApi("auth/logout", club, { method: "POST", body: "{}" });
     clearResourceCache();
@@ -468,8 +817,10 @@ export default function ClubApp() {
         page = <Events />;
         break;
       case "finance":
+        page = <Finance />;
+        break;
       case "approvals":
-        page = <Finance approvals={routePath === "approvals"} />;
+        page = <ApprovalCenter />;
         break;
       case "categories":
         page = <Categories />;
@@ -503,7 +854,9 @@ export default function ClubApp() {
         break;
       default:
         page =
-          session.clubs.length === 0 ? (
+          can("ADMIN") ? (
+            <AdminDashboard />
+          ) : session.clubs.length === 0 ? (
             <ExploreClubs onboarding />
           ) : (
             <Dashboard />
@@ -526,7 +879,7 @@ export default function ClubApp() {
           navigate(target);
           refresh();
         },
-        reloadSession: () => load(club),
+        reloadSession: (id?: number) => load(id !== undefined ? id : club),
         mutate: async (path: string, data: any, method = "POST") => {
           const r = await fetchApi(path, club, {
             method,
@@ -542,16 +895,28 @@ export default function ClubApp() {
         style={{ "--sidebar-width": "252px" } as React.CSSProperties}
       >
         <Sidebar className="club-sidebar">
-          <SidebarHeader className="sidebar-brand">
+          <SidebarHeader className="sidebar-header-area">
             <Brand />
-          </SidebarHeader>
-          <SidebarContent>
+            {can("ADMIN") && (
+              <div className="sidebar-admin-badge">
+                <ShieldCheck size={15} />
+                <span>QUẢN TRỊ TOÀN TRƯỜNG</span>
+              </div>
+            )}
             <div className="club-switch">
               <span className="club-initial">
-                {activeClub?.club_code?.includes("CNTT") ? "IT" : "CLB"}
+                {can("ADMIN")
+                  ? "AD"
+                  : activeClub?.club_code?.includes("CNTT")
+                    ? "IT"
+                    : "CLB"}
               </span>
               <div>
-                <span>CÂU LẠC BỘ CỦA BẠN</span>
+                <span>
+                  {can("ADMIN")
+                    ? "GIÁM SÁT DỮ LIỆU CLB"
+                    : "CÂU LẠC BỘ CỦA BẠN"}
+                </span>
                 {session.clubs.length > 0 ? (
                   <SelectBox
                     label="Chọn câu lạc bộ"
@@ -575,37 +940,59 @@ export default function ClubApp() {
                 )}
               </div>
             </div>
-            <SidebarGroup>
-              <SidebarGroupLabel>KHÔNG GIAN LÀM VIỆC</SidebarGroupLabel>
-              <Nav
-                items={navigation}
-                roles={roleList}
-                route={routePath}
-                navigate={navigate}
-                club={club}
-              />
-            </SidebarGroup>
-            {management.some((n) => n.roles.some((r) => can(r))) && (
-              <SidebarGroup>
-                <SidebarGroupLabel>QUẢN LÝ</SidebarGroupLabel>
-                <Nav
-                  items={management}
-                  roles={roleList}
-                  route={routePath}
-                  navigate={navigate}
-                  club={club}
-                />
-              </SidebarGroup>
+          </SidebarHeader>
+          <SidebarContent>
+            {can("ADMIN") ? (
+              <>
+                <SidebarGroup>
+                  <SidebarGroupLabel>QUẢN TRỊ HỆ THỐNG</SidebarGroupLabel>
+                  <Nav
+                    items={adminNavigation}
+                    roles={roleList}
+                    route={routePath}
+                    navigate={navigate}
+                    club={club}
+                  />
+                </SidebarGroup>
+                <SidebarGroup>
+                  <SidebarGroupLabel>GIÁM SÁT CÂU LẠC BỘ</SidebarGroupLabel>
+                  <Nav
+                    items={adminSupervision}
+                    roles={roleList}
+                    route={routePath}
+                    navigate={navigate}
+                    club={club}
+                  />
+                </SidebarGroup>
+              </>
+            ) : (
+              <>
+                <SidebarGroup>
+                  <SidebarGroupLabel>KHÔNG GIAN LÀM VIỆC</SidebarGroupLabel>
+                  <Nav
+                    items={navigation}
+                    roles={roleList}
+                    route={routePath}
+                    navigate={navigate}
+                    club={club}
+                  />
+                </SidebarGroup>
+                {management.some((n) => n.roles.some((r) => can(r))) && (
+                  <SidebarGroup>
+                    <SidebarGroupLabel>QUẢN LÝ</SidebarGroupLabel>
+                    <Nav
+                      items={management}
+                      roles={roleList}
+                      route={routePath}
+                      navigate={navigate}
+                      club={club}
+                    />
+                  </SidebarGroup>
+                )}
+              </>
             )}
           </SidebarContent>
           <SidebarFooter>
-            <div className="sidebar-bottom-note">
-              <GraduationCap size={25} />
-              <div>
-                <strong>Mỗi kết nối đều có giá trị.</strong>
-                <span>Cùng phát triển câu lạc bộ.</span>
-              </div>
-            </div>
             <button
               className="sidebar-profile"
               onClick={() => navigate("profile")}
@@ -613,8 +1000,16 @@ export default function ClubApp() {
               <Avatar name={session.user.full_name} />
               <span>
                 <strong>{session.user.full_name.split("·")[0]}</strong>
-                <small>
-                  {labels[roleList.find((r) => r !== "MEMBER") || "MEMBER"]}
+                <small
+                  className={
+                    can("ADMIN")
+                      ? "text-amber-600 dark:text-amber-400 font-semibold"
+                      : ""
+                  }
+                >
+                  {can("ADMIN")
+                    ? "Quản trị viên toàn trường"
+                    : labels[roleList.find((r) => r !== "MEMBER") || "MEMBER"]}
                 </small>
               </span>
               <ArrowRight size={17} />
@@ -626,7 +1021,8 @@ export default function ClubApp() {
             <div className="topbar-left">
               <SidebarTrigger aria-label="Mở điều hướng" />
               <span className="breadcrumb">
-                Không gian làm việc <span>/</span> <strong>{title}</strong>
+                {can("ADMIN") ? "Quản trị hệ thống" : "Không gian làm việc"}{" "}
+                <span>/</span> <strong>{title}</strong>
               </span>
             </div>
             <div className="topbar-right">
