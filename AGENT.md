@@ -26,7 +26,7 @@
 | **Backend** | Node.js, Express, TypeScript (`tsx`) | RESTful API pattern, chia module theo từng nghiệp vụ tại `server/*.ts`. Kiểm thực đầu vào toàn diện bằng **Zod**. |
 | **Database** | **Supabase (PostgreSQL 15+)** | Chuyển đổi từ mô hình SQL Server gốc sang PostgreSQL trên Supabase. 15 bảng cơ sở dữ liệu + 2 Views báo cáo. |
 | **ORM & Driver** | **Prisma ORM** | Schema khai báo tại [`prisma/schema.prisma`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/prisma/schema.prisma). Adapter database dùng [`server/prisma.ts`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/server/prisma.ts) tuân thủ interface `Database`. |
-| **Kiểm thử tự động** | Node.js built-in Test Runner (`node --test`) | Chạy 21 bộ test nghiệp vụ độc lập trong bộ nhớ (`tests/api.test.ts`) bằng SQLite engine (`node:sqlite` & [`tests/test-schema.sql`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/tests/test-schema.sql)). |
+| **Kiểm thử tự động** | Node.js built-in Test Runner (`node --test`) | Chạy 27 bộ test nghiệp vụ độc lập trong bộ nhớ (`tests/api.test.ts`) bằng SQLite engine (`node:sqlite` & [`tests/test-schema.sql`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/tests/test-schema.sql)). |
 | **Bảo mật & Session** | Cookie HttpOnly, SHA-256 tokens | Argon2id / bcrypt password hashing; Origin check chống CSRF; Rate limiting; Thu hồi phiên khi đổi mật khẩu/khóa tài khoản. Múi giờ hệ thống: `Asia/Ho_Chi_Minh` (UTC+7). |
 
 ---
@@ -62,9 +62,9 @@ Một yêu cầu nghiệp vụ của 4 vai trò cấp CLB chỉ hợp lệ khi c
 
 ---
 
-## 4. 23 Quy tắc Nghiệp vụ Bất biến (Business Rules: BR-01 -> BR-23)
+## 4. 27 Quy tắc Nghiệp vụ Bất biến (Business Rules: BR-01 -> BR-27)
 
-AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 23 quy tắc nghiệp vụ sau:
+AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 27 quy tắc nghiệp vụ sau:
 
 - **`BR-01`**: `username` là duy nhất trên toàn hệ thống (`UQ_USERS_username`).
 - **`BR-02`**: Mã sinh viên `student_code` (nếu có) là duy nhất trên toàn hệ thống (`UX_USERS_student_code`).
@@ -91,6 +91,10 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 23 quy tắc n
 - **`BR-21` (Bảo vệ Leader cuối cùng):** Không được gỡ vai trò hoặc vô hiệu hóa tài khoản của `LEADER` hoạt động cuối cùng trong CLB nếu chưa bổ nhiệm người thay thế.
 - **`BR-22` (Ghi sổ Idempotent):** Giao dịch tài chính chỉ được chuyển sang `POSTED` đúng một lần. Kiểm tra trạng thái và số dư quỹ phải diễn ra trong cùng transaction cơ sở dữ liệu.
 - **`BR-23` (Đăng ký và Xét duyệt Gia nhập CLB):** Bất kỳ người dùng nào có tài khoản `account_status = 'ACTIVE'` đều có thể nộp đơn xin gia nhập câu lạc bộ đang hoạt động (`club_status = 'ACTIVE'`). Đơn gia nhập ở trạng thái ban đầu là `PENDING`. Mỗi người dùng chỉ có tối đa 1 đơn `PENDING` cho một CLB (`UQ_CLUB_JOIN_REQUESTS_user_club_pending`). Chỉ Cán bộ phụ trách nhân sự (`OFFICER`) hoặc Chủ nhiệm (`LEADER`) của chính CLB đó mới có thẩm quyền phê duyệt (`APPROVED`) hoặc từ chối (`REJECTED`) đơn. Khi duyệt `APPROVED`, hệ thống tự động khởi tạo/kích hoạt hồ sơ thành viên chính thức (`CLUB_MEMBERS` với `member_status = 'ACTIVE'`) và cấp vai trò `MEMBER` trong `USER_ROLES`. Khi từ chối `REJECTED`, bắt buộc phải ghi rõ lý do từ chối (`review_reason`). Thao tác nộp đơn và xét duyệt phải được ghi nhận vào `AUDIT_LOGS`.
+- **`BR-24` (Bảo vệ Chủ nhiệm duy nhất khi rời CLB - Sole Leader Protection):** Thành viên CLB có quyền tự nguyện rời CLB (`member_status = 'LEFT'`, vô hiệu hóa `active_flag = 0`). Tuy nhiên, nếu thành viên đó là `LEADER`, hệ thống bắt buộc phải kiểm tra trong CLB còn ít nhất một `LEADER` khác đang `ACTIVE`. Nếu là Chủ nhiệm duy nhất, cấm rời CLB và yêu cầu phải bàn giao chức danh Chủ nhiệm trước.
+- **`BR-25` (Khôi phục mật khẩu 2 bước an toàn - Self-service Password Reset):** Quá trình đặt lại mật khẩu gồm 2 bước độc lập: (1) Xác minh danh tính qua `username` + `email` hoặc `student_code`, sinh mã OTP 6 số và cấp token chữ ký số HMAC thời hạn 15 phút, chống brute-force qua bảng `AUTH_ATTEMPTS`. (2) Xác minh OTP, cập nhật mật khẩu mã hóa bcrypt, đồng thời hủy bỏ toàn bộ các phiên đăng nhập cũ trong `AUTH_SESSIONS` và ghi `AUDIT_LOGS`.
+- **`BR-26` (Tự động bắt đầu sự kiện - Event Auto-start Lifecycle):** Sự kiện đã công bố (`OPEN`) hoặc đã chốt danh sách (`CLOSED`) sẽ tự động chuyển trạng thái sang `ONGOING` (Đang diễn ra) khi đến ngày giờ bắt đầu (`start_at <= now()`), không yêu cầu can thiệp thủ công từ cán bộ CLB.
+- **`BR-27` (Tách bạch thẩm quyền Phê duyệt - Approval Separation):** Thủ quỹ (`TREASURER`) chỉ quản lý sổ quỹ và đề xuất chi trong phân hệ "Tài chính", không thấy menu "Phê duyệt". Phân hệ "Phê duyệt" được nâng cấp thành **Trung tâm Phê duyệt điều hành (`ApprovalCenter`)** chỉ dành cho Chủ nhiệm (`LEADER`), hợp nhất 2 tab: Phê duyệt đề nghị chi tiêu tài chính và Xét duyệt đơn xin gia nhập CLB của sinh viên.
 
 ---
 
@@ -138,7 +142,7 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 23 quy tắc n
 
 ---
 
-## 6. 11 Ca Sử dụng Cốt lõi (Core Use Cases: UC-01 -> UC-11)
+## 6. 13 Ca Sử dụng Cốt lõi (Core Use Cases: UC-01 -> UC-13)
 
 ### UC-01: Đăng nhập và Phân quyền
 - **Actor:** Tất cả người dùng.
@@ -208,6 +212,23 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 23 quy tắc n
     - **Từ chối (`REJECTED`):** Nhập lý do từ chối (`review_reason`), cập nhật trạng thái đơn và ghi `AUDIT_LOGS`.
 - **Ràng buộc:** Không được nộp đơn nếu đã là thành viên chính thức (`ACTIVE`) của CLB đó; Không được nộp trùng lặp khi đã có đơn đang chờ duyệt (`PENDING`); Chỉ `OFFICER` và `LEADER` của CLB mới có quyền xét duyệt đơn của CLB mình (`BR-23`).
 
+### UC-12: Khôi phục và Đặt lại mật khẩu (Self-service Password Reset)
+- **Actor:** Tất cả người dùng đã đăng ký tài khoản.
+- **Mô tả:** 
+  - Người dùng quên mật khẩu truy cập màn hình đăng nhập -> bấm "Quên mật khẩu?".
+  - **Bước 1 (Xác minh danh tính):** Nhập `username` và `email` hoặc `student_code`. Hệ thống kiểm tra khớp danh tính, sinh mã OTP 6 số và cấp token chữ ký số HMAC thời hạn 15 phút.
+  - **Bước 2 (Đổi mật khẩu):** Nhập mã OTP, mật khẩu mới và xác nhận mật khẩu. Hệ thống mã hóa mật khẩu bcrypt, cập nhật database, hủy toàn bộ phiên làm việc cũ (`AUTH_SESSIONS`) và ghi `AUDIT_LOGS`.
+- **Ràng buộc:** Giới hạn 5 lần/15 phút chống brute-force (`AUTH_ATTEMPTS`). Token tự hết hạn sau 15 phút. Mật khẩu mới tối thiểu 10 ký tự (`BR-25`).
+
+### UC-13: Tự nguyện Rời Câu Lạc Bộ (Voluntary Leave Club Workflow)
+- **Actor:** Hội viên hoặc cán bộ đang hoạt động trong CLB (`member_status = 'ACTIVE'`).
+- **Mô tả:** 
+  - Người dùng bấm nút "Rời CLB" tại một trong 3 vị trí: Trang Khám phá CLB (`ExploreClubs`), thẻ thành viên cá nhân trên Dashboard (`personal-card`), hoặc trang Hồ sơ cá nhân (`Profile`).
+  - Hộp thoại xác nhận yêu cầu nhập lý do rời CLB.
+  - Khi xác nhận: Hệ thống cập nhật `CLUB_MEMBERS` (`member_status = 'LEFT'`, `leave_date = CURRENT_DATE`), vô hiệu hóa quyền hạn trong `USER_ROLES` (`active_flag = 0`), ghi lịch sử vào `MEMBER_STATUS_HISTORY` và ghi vết `AUDIT_LOGS` (`action_code = 'LEAVE_CLUB'`).
+  - Hệ thống tự động làm mới phiên làm việc (`reloadSession(0)`), chuyển vùng làm việc sang CLB khác hoặc giao diện khám phá CLB.
+- **Ràng buộc:** Tuyệt đối không xóa cứng dữ liệu (`BR-04`). **Bảo vệ Chủ nhiệm duy nhất:** Nếu người dùng là `LEADER`, hệ thống bắt buộc phải kiểm tra CLB còn ít nhất một `LEADER` khác đang `ACTIVE`. Nếu là Chủ nhiệm duy nhất, chặn thao tác và yêu cầu phải bàn giao chức danh trước khi rời (`BR-24`).
+
 ---
 
 ## 7. Cấu trúc Cơ sở Dữ liệu (Schema & Views Reference)
@@ -251,7 +272,7 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 23 quy tắc n
    Tuyệt đối không ghép chuỗi (string concatenation) trong câu truy vấn SQL để phòng ngừa rủi ro SQL Injection. Luôn dùng Prisma Client hoặc cơ chế binding tham số `$1`, `$2`...
 6. **Bảo toàn và chạy Test sau khi sửa code:**
    Mỗi khi tạo mới hoặc sửa đổi code backend/frontend, **BẮT BUỘC** chạy kiểm tra:
-   - `pnpm test` (đảm bảo 23/23 bộ test đều pass).
+   - `pnpm test` (đảm bảo 27/27 bộ test đều pass).
    - `pnpm typecheck` (`pnpm exec tsc --noEmit` đạt 0 lỗi).
 
 ### NHỮNG ĐIỀU TUYỆT ĐỐI KHÔNG ĐƯỢC LÀM (DONTs):
@@ -276,7 +297,7 @@ pnpm build
 # Khởi chạy server production
 pnpm start
 
-# Chạy toàn bộ 23 bộ kiểm thử unit/integration test
+# Chạy toàn bộ 27 bộ kiểm thử unit/integration test
 pnpm test
 
 # Kiểm tra toàn bộ lỗi TypeScript trong codebase
