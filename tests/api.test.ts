@@ -247,9 +247,23 @@ test("Event validation and publish workflow", async () => {
   assert.equal(r.status, 201);
   eventId = r.data.event_id;
   assert.equal((await call("MEMBER", "events/" + eventId)).status, 404);
+  const officerPublish = await call(
+    "OFFICER",
+    `events/${eventId}/action`,
+    "POST",
+    {
+      action: "publish",
+    },
+  );
+  assert.equal(officerPublish.status, 403);
+  assert.equal(
+    officerPublish.data.error,
+    "Chỉ Chủ nhiệm câu lạc bộ mới có quyền công bố sự kiện.",
+  );
+
   assert.equal(
     (
-      await call("OFFICER", `events/${eventId}/action`, "POST", {
+      await call("LEADER", `events/${eventId}/action`, "POST", {
         action: "publish",
       })
     ).status,
@@ -332,7 +346,7 @@ test("Registration review stores reviewer and respects capacity", async () => {
   };
   const made = await call("OFFICER", "events", "POST", b),
     id = made.data.event_id;
-  await call("OFFICER", `events/${id}/action`, "POST", { action: "publish" });
+  await call("LEADER", `events/${id}/action`, "POST", { action: "publish" });
   await call("MEMBER", `events/${id}/registration`, "POST", {
     action: "register",
   });
@@ -359,6 +373,27 @@ test("Registration review stores reviewer and respects capacity", async () => {
       })
     ).status,
     409,
+  );
+  // Rejecting without reason fails (400)
+  assert.equal(
+    (
+      await call("OFFICER", `events/${id}/registrations`, "PATCH", {
+        registration_id: regs[1].registration_id,
+        status: "REJECTED",
+      })
+    ).status,
+    400,
+  );
+  // Rejecting with reason succeeds (200) by either LEADER or OFFICER
+  assert.equal(
+    (
+      await call("LEADER", `events/${id}/registrations`, "PATCH", {
+        registration_id: regs[1].registration_id,
+        status: "REJECTED",
+        reason: "Không phù hợp thời gian sự kiện",
+      })
+    ).status,
+    200,
   );
   assert.ok(
     sql(

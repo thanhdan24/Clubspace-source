@@ -12,6 +12,7 @@ import {
   LockKeyhole,
   UnlockKeyhole,
   Check,
+  X,
   Grid2X2,
   List,
   UserPlus,
@@ -525,23 +526,27 @@ function Roster({ event, attendance = false }: any) {
                     render: (r: Row) =>
                       r.registration_status === "PENDING" &&
                       can("OFFICER", "LEADER") && (
-                        <div className="row-actions">
+                        <div className="row-actions flex items-center gap-1.5">
                           <Button
                             size="sm"
                             variant="outline"
+                            className="h-8 text-xs font-semibold text-emerald-700 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"
                             onClick={() =>
                               setConfirm({ row: r, status: "CONFIRMED" })
                             }
                           >
+                            <Check size={14} className="mr-1" />
                             Duyệt
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
+                            className="h-8 text-xs font-medium text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                             onClick={() =>
                               setConfirm({ row: r, status: "REJECTED" })
                             }
                           >
+                            <X size={14} className="mr-1" />
                             Từ chối
                           </Button>
                         </div>
@@ -625,11 +630,15 @@ function Roster({ event, attendance = false }: any) {
         <Confirm
           title={
             confirm.status === "CONFIRMED"
-              ? "Xác nhận đăng ký?"
-              : "Từ chối đăng ký?"
+              ? "Xác nhận đăng ký tham gia?"
+              : "Từ chối đăng ký tham gia?"
           }
-          description={confirm.row.full_name}
-          reason={event.event_status !== "OPEN"}
+          description={
+            confirm.status === "CONFIRMED"
+              ? `Xác nhận cho thành viên ${confirm.row.full_name} tham gia sự kiện.`
+              : `Từ chối đăng ký của thành viên ${confirm.row.full_name}. Vui lòng nhập lý do từ chối bên dưới.`
+          }
+          reason={confirm.status === "REJECTED"}
           onClose={() => setConfirm(null)}
           onConfirm={(note: string) =>
             mutate(
@@ -637,7 +646,7 @@ function Roster({ event, attendance = false }: any) {
               {
                 registration_id: confirm.row.registration_id,
                 status: confirm.status,
-                reason: note,
+                reason: note || undefined,
               },
               "PATCH",
             )
@@ -692,10 +701,7 @@ export function EventDetail({ id }: any) {
   const actions: any = {
     DRAFT: [["publish", "Công bố sự kiện"]],
     OPEN: [["close", "Chốt danh sách"]],
-    CLOSED: [
-      ["reopen", "Mở lại đăng ký"],
-      ["complete", "Khóa & hoàn tất"],
-    ],
+    CLOSED: [["complete", "Khóa & hoàn tất"]],
     ONGOING: [["complete", "Khóa & hoàn tất"]],
   };
   return (
@@ -881,8 +887,18 @@ export function EventDetail({ id }: any) {
                   {can("OFFICER", "LEADER") && isHostClub && (
                     <section className="panel event-controls">
                       <SectionHeader title="Điều hành sự kiện" />
-                      {(actions[e.event_status] || []).map(
-                        ([action, label]: string[]) => (
+                      {e.event_status === "DRAFT" && !can("LEADER") && (
+                        <div className="inline-notice mb-3">
+                          <AlertCircle size={16} />
+                          Bản nháp đang chờ Chủ nhiệm câu lạc bộ phê duyệt & công bố.
+                        </div>
+                      )}
+                      {(actions[e.event_status] || [])
+                        .filter(
+                          ([action]: string[]) =>
+                            action !== "publish" || can("LEADER"),
+                        )
+                        .map(([action, label]: string[]) => (
                           <Button
                             key={action}
                             variant={
@@ -899,8 +915,7 @@ export function EventDetail({ id }: any) {
                             )}{" "}
                             {label}
                           </Button>
-                        ),
-                      )}
+                        ))}
                       {can("LEADER") && e.event_status === "CLOSED" && (
                         <Button
                           variant="outline"
@@ -931,7 +946,8 @@ export function EventDetail({ id }: any) {
                           Mở khóa điểm danh
                         </Button>
                       )}
-                      {!["COMPLETED", "CANCELLED"].includes(e.event_status) && (
+                      {!["COMPLETED", "CANCELLED"].includes(e.event_status) &&
+                        (e.event_status !== "ONGOING" || can("LEADER")) && (
                         <Button
                           variant="ghost"
                           className="danger-text"

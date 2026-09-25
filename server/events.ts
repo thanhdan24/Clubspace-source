@@ -260,8 +260,23 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
         reason: z.string().trim().max(500).optional(),
       })
       .parse(await body(req));
-    if (["reopen", "unlock"].includes(b.action)) permit(c, "LEADER");
-    else permit(c, "OFFICER", "LEADER");
+    if (b.action === "publish") {
+      fail(
+        has(c, "LEADER"),
+        "Chỉ Chủ nhiệm câu lạc bộ mới có quyền công bố sự kiện.",
+        403,
+      );
+    } else if (["reopen", "unlock"].includes(b.action)) {
+      permit(c, "LEADER");
+    } else if (b.action === "cancel" && event.event_status === "ONGOING") {
+      fail(
+        has(c, "LEADER"),
+        "Sự kiện đang diễn ra chỉ có Chủ nhiệm mới có quyền hủy.",
+        403,
+      );
+    } else {
+      permit(c, "OFFICER", "LEADER");
+    }
     const transitions: any = {
       publish: { from: ["DRAFT"], to: "OPEN" },
       close: { from: ["OPEN"], to: "CLOSED" },
@@ -527,10 +542,9 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     );
     permit(c, "OFFICER", "LEADER");
     fail(
-      event.event_status === "OPEN" ||
-        (has(c, "LEADER") &&
-          ["CLOSED", "ONGOING"].includes(event.event_status)),
-      "Danh sách đã chốt; cần chủ nhiệm xử lý ngoại lệ.",
+      !["COMPLETED", "CANCELLED"].includes(event.event_status),
+      "Không thể duyệt đăng ký cho sự kiện đã hoàn tất hoặc bị hủy.",
+      409,
     );
     const b = z
       .object({
@@ -539,8 +553,13 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
         reason: z.string().trim().max(500).optional(),
       })
       .parse(await body(req));
-    if (event.event_status !== "OPEN")
-      fail(b.reason, "Vui lòng nhập lý do xử lý ngoại lệ.");
+    if (b.status === "REJECTED") {
+      fail(
+        b.reason && b.reason.trim().length > 0,
+        "Vui lòng nhập lý do từ chối đăng ký.",
+        400,
+      );
+    }
     const old = await one(
       c.db,
       "SELECT r.*,cm.member_status,u.account_status,cm.user_id FROM EVENT_REGISTRATIONS r JOIN CLUB_MEMBERS cm ON cm.club_member_id=r.club_member_id JOIN USERS u ON u.user_id=cm.user_id WHERE r.registration_id=? AND r.event_id=? AND cm.club_id=?",
