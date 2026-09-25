@@ -1052,7 +1052,9 @@ test("Club join application and review workflow: submit, duplicate prevention, r
   assert.equal(userRole.role_code, "MEMBER");
 
   // 7. Now applicant cannot re-apply to Club 1
-  const reApply = await appCall("clubs/1/join", "POST", { message: "Xin vào lại" });
+  const reApply = await appCall("clubs/1/join", "POST", {
+    message: "Xin vào lại",
+  });
   assert.equal(reApply.status, 400);
   assert.match(reApply.data.error, /thành viên chính thức/);
 
@@ -1177,26 +1179,50 @@ test("Forgot password and reset password flow: verifies ownership, rejects inval
   assert.equal(reuseToken.status, 400);
 
   // Restore original password for any subsequent tests/fixtures
-  const originalHash = sql("SELECT password_hash FROM USERS WHERE username='officer_it'").password_hash;
-  sqlite.prepare("UPDATE USERS SET password_hash=? WHERE username='leader_it'").run(originalHash);
+  const originalHash = sql(
+    "SELECT password_hash FROM USERS WHERE username='officer_it'",
+  ).password_hash;
+  sqlite
+    .prepare("UPDATE USERS SET password_hash=? WHERE username='leader_it'")
+    .run(originalHash);
 });
 
 test("Leave club workflow: voluntary leave, role deactivation, status history, and last leader protection", async () => {
   // 1. Leader cannot leave if sole leader
   // Temporarily deactivate all other leaders in Club 1 so demo_leader is the ONLY active leader
-  sqlite.prepare("UPDATE USER_ROLES SET active_flag=0 WHERE club_id=1 AND role_id=2 AND user_id<>10002").run();
-  const leaderLeave = await call("LEADER", "clubs/1/leave", "POST", {
-    reason: "Thử rời CLB",
-  }, 1);
+  sqlite
+    .prepare(
+      "UPDATE USER_ROLES SET active_flag=0 WHERE club_id=1 AND role_id=2 AND user_id<>10002",
+    )
+    .run();
+  const leaderLeave = await call(
+    "LEADER",
+    "clubs/1/leave",
+    "POST",
+    {
+      reason: "Thử rời CLB",
+    },
+    1,
+  );
   assert.equal(leaderLeave.status, 400);
   assert.match(leaderLeave.data.error, /Chủ nhiệm duy nhất/);
   // Restore leaders in Club 1
-  sqlite.prepare("UPDATE USER_ROLES SET active_flag=1 WHERE club_id=1 AND role_id=2").run();
+  sqlite
+    .prepare(
+      "UPDATE USER_ROLES SET active_flag=1 WHERE club_id=1 AND role_id=2",
+    )
+    .run();
 
   // 2. Member leaves club voluntarily
-  const memberLeave = await call("MEMBER", "clubs/1/leave", "POST", {
-    reason: "Bận việc học kỳ cuối",
-  }, 1);
+  const memberLeave = await call(
+    "MEMBER",
+    "clubs/1/leave",
+    "POST",
+    {
+      reason: "Bận việc học kỳ cuối",
+    },
+    1,
+  );
   assert.equal(memberLeave.status, 200);
   assert.equal(memberLeave.data.ok, true);
 
@@ -1216,8 +1242,16 @@ test("Leave club workflow: voluntary leave, role deactivation, status history, a
   assert.equal(history.reason, "Bận việc học kỳ cuối");
 
   // Restore member for fixture consistency
-  sqlite.prepare("UPDATE CLUB_MEMBERS SET member_status='ACTIVE', leave_date=null WHERE club_member_id=?").run(memberRow.club_member_id);
-  sqlite.prepare("UPDATE USER_ROLES SET active_flag=1 WHERE club_id=1 AND user_id=(SELECT user_id FROM USERS WHERE username='demo_member')").run();
+  sqlite
+    .prepare(
+      "UPDATE CLUB_MEMBERS SET member_status='ACTIVE', leave_date=null WHERE club_member_id=?",
+    )
+    .run(memberRow.club_member_id);
+  sqlite
+    .prepare(
+      "UPDATE USER_ROLES SET active_flag=1 WHERE club_id=1 AND user_id=(SELECT user_id FROM USERS WHERE username='demo_member')",
+    )
+    .run();
 });
 
 test("Admin overview: only ADMIN can access, returns system-wide macro stats", async () => {
@@ -1247,22 +1281,34 @@ test("Route verification: all 16 application routes work correctly with appropri
   // Route 2: Explore Clubs (clubs and join-requests)
   const rExplore = await call("MEMBER", "clubs");
   assert.equal(rExplore.status, 200);
-  assert.ok(Array.isArray(rExplore.data.rows || rExplore.data.clubs || rExplore.data));
+  assert.ok(
+    Array.isArray(rExplore.data.rows || rExplore.data.clubs || rExplore.data),
+  );
 
   // Route 3: Members (members)
   const rMembers = await call("LEADER", "members", "GET", undefined, 1);
   assert.equal(rMembers.status, 200);
-  assert.ok(Array.isArray(rMembers.data.rows || rMembers.data.members || rMembers.data));
+  assert.ok(
+    Array.isArray(rMembers.data.rows || rMembers.data.members || rMembers.data),
+  );
 
   // Route 4: Events list (events)
   const rEvents = await call("MEMBER", "events", "GET", undefined, 1);
   assert.equal(rEvents.status, 200);
-  assert.ok(Array.isArray(rEvents.data.rows || rEvents.data.events || rEvents.data));
+  assert.ok(
+    Array.isArray(rEvents.data.rows || rEvents.data.events || rEvents.data),
+  );
 
   // Route 5: Event detail (events/:id and registrations)
   const rEventDetail = await call("MEMBER", "events/1", "GET", undefined, 1);
   assert.equal(rEventDetail.status, 200);
-  const rAttendees = await call("LEADER", "events/1/registrations", "GET", undefined, 1);
+  const rAttendees = await call(
+    "LEADER",
+    "events/1/registrations",
+    "GET",
+    undefined,
+    1,
+  );
   assert.equal(rAttendees.status, 200);
   assert.ok(Array.isArray(rAttendees.data.rows || rAttendees.data));
 
@@ -1272,44 +1318,90 @@ test("Route verification: all 16 application routes work correctly with appropri
   assert.ok(Array.isArray(rFinance.data.rows || rFinance.data));
 
   // Route 7: Approvals (finance with status=PENDING_APPROVAL)
-  const rApprovals = await call("LEADER", "finance?status=PENDING_APPROVAL", "GET", undefined, 1);
+  const rApprovals = await call(
+    "LEADER",
+    "finance?status=PENDING_APPROVAL",
+    "GET",
+    undefined,
+    1,
+  );
   assert.equal(rApprovals.status, 200);
   assert.ok(Array.isArray(rApprovals.data.rows || rApprovals.data));
 
   // Route 8: Categories (categories)
-  const rCategories = await call("TREASURER", "categories", "GET", undefined, 1);
+  const rCategories = await call(
+    "TREASURER",
+    "categories",
+    "GET",
+    undefined,
+    1,
+  );
   assert.equal(rCategories.status, 200);
-  assert.ok(Array.isArray(rCategories.data.rows || rCategories.data.categories || rCategories.data));
+  assert.ok(
+    Array.isArray(
+      rCategories.data.rows || rCategories.data.categories || rCategories.data,
+    ),
+  );
 
   // Route 9: Reports (reports?type=events, reports?type=finance, reports?type=members)
-  const rRepFinance = await call("LEADER", "reports?type=finance", "GET", undefined, 1);
+  const rRepFinance = await call(
+    "LEADER",
+    "reports?type=finance",
+    "GET",
+    undefined,
+    1,
+  );
   assert.equal(rRepFinance.status, 200);
-  const rRepEvents = await call("LEADER", "reports?type=events", "GET", undefined, 1);
+  const rRepEvents = await call(
+    "LEADER",
+    "reports?type=events",
+    "GET",
+    undefined,
+    1,
+  );
   assert.equal(rRepEvents.status, 200);
-  const rRepMembers = await call("LEADER", "reports?type=members", "GET", undefined, 1);
+  const rRepMembers = await call(
+    "LEADER",
+    "reports?type=members",
+    "GET",
+    undefined,
+    1,
+  );
   assert.equal(rRepMembers.status, 200);
 
   // Route 10: Accounts (accounts - Admin only)
   const rAccounts = await call("ADMIN", "accounts");
   assert.equal(rAccounts.status, 200);
-  assert.ok(Array.isArray(rAccounts.data.rows || rAccounts.data.accounts || rAccounts.data));
+  assert.ok(
+    Array.isArray(
+      rAccounts.data.rows || rAccounts.data.accounts || rAccounts.data,
+    ),
+  );
 
   // Route 11: Clubs (clubs - Admin only)
   const rClubs = await call("ADMIN", "clubs");
   assert.equal(rClubs.status, 200);
-  assert.ok(Array.isArray(rClubs.data.rows || rClubs.data.clubs || rClubs.data));
+  assert.ok(
+    Array.isArray(rClubs.data.rows || rClubs.data.clubs || rClubs.data),
+  );
 
   // Route 12: Roles (roles - Admin / Leader)
   const rRolesAdmin = await call("ADMIN", "roles");
   assert.equal(rRolesAdmin.status, 200);
   const rRolesLeader = await call("LEADER", "roles", "GET", undefined, 1);
   assert.equal(rRolesLeader.status, 200);
-  assert.ok(Array.isArray(rRolesLeader.data.rows || rRolesLeader.data.roles || rRolesLeader.data));
+  assert.ok(
+    Array.isArray(
+      rRolesLeader.data.rows || rRolesLeader.data.roles || rRolesLeader.data,
+    ),
+  );
 
   // Route 13: Audit log (audit - Admin / Leader)
   const rAudit = await call("ADMIN", "audit");
   assert.equal(rAudit.status, 200);
-  assert.ok(Array.isArray(rAudit.data.rows || rAudit.data.audits || rAudit.data));
+  assert.ok(
+    Array.isArray(rAudit.data.rows || rAudit.data.audits || rAudit.data),
+  );
 
   // Route 14: Settings (club - Leader / Admin)
   const rSettings = await call("LEADER", "club", "GET", undefined, 1);
@@ -1320,11 +1412,334 @@ test("Route verification: all 16 application routes work correctly with appropri
   assert.equal(rProfile.status, 200);
 
   // Route 16: Registrations (my-registrations - Member)
-  const rRegistrations = await call("MEMBER", "my-registrations", "GET", undefined, 1);
+  const rRegistrations = await call(
+    "MEMBER",
+    "my-registrations",
+    "GET",
+    undefined,
+    1,
+  );
   assert.equal(rRegistrations.status, 200);
-  assert.ok(Array.isArray(rRegistrations.data.rows || rRegistrations.data.registrations || rRegistrations.data));
+  assert.ok(
+    Array.isArray(
+      rRegistrations.data.rows ||
+        rRegistrations.data.registrations ||
+        rRegistrations.data,
+    ),
+  );
 });
 
+test("Club join request with file attachment: upload attachment, submit join request, review attachment, and download security check", async () => {
+  const files = new Map<string, any>();
+  const testBucket = {
+    put: async (k: string, b: Uint8Array, m: any) =>
+      files.set(k, { body: b, ...m }),
+    get: async (k: string) => files.get(k),
+  };
 
+  // 1. Create a dedicated applicant account
+  const applicantData = {
+    student_code: "ATTACH_001",
+    username: "attach_user_01",
+    password: "Password@123",
+    full_name: "Hoang Van Attach",
+    email: "attach_user@ptit.edu.vn",
+  };
+  await call("ADMIN", "accounts", "POST", applicantData);
+  const loginRes = await call("", "auth/login", "POST", {
+    username: applicantData.username,
+    password: applicantData.password,
+  });
+  const applicantCookie = loginRes.cookie!.split(";")[0];
 
+  // 2. Upload an attachment (CV PDF)
+  const form = new FormData();
+  form.set(
+    "file",
+    new File(
+      ["%PDF-1.4 Mock CV of Hoang Van Attach"],
+      "CV_HoangVanAttach.pdf",
+      {
+        type: "application/pdf",
+      },
+    ),
+  );
+  const uploadReq = new Request("http://test.local/api/attachments", {
+    method: "POST",
+    headers: { Cookie: applicantCookie },
+    body: form,
+  });
+  const uploadRes = await handleApi(uploadReq, db, {
+    ...env,
+    BUCKET: testBucket,
+  });
+  assert.equal(uploadRes.status, 201);
+  const uploadData: any = await uploadRes.json();
+  assert.ok(uploadData.file_url.startsWith("/api/attachments/requests/"));
+  assert.equal(uploadData.file_name, "CV_HoangVanAttach.pdf");
 
+  // 3. Submit join request to Club 1 with the attachment
+  const joinReq = new Request("http://test.local/api/clubs/1/join?club=0", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: applicantCookie,
+    },
+    body: JSON.stringify({
+      message: "Em xin gia nhập và đã đính kèm CV chi tiết.",
+      file_url: uploadData.file_url,
+      file_name: uploadData.file_name,
+    }),
+  });
+  const joinRes = await handleApi(joinReq, db, { ...env, BUCKET: testBucket });
+  assert.equal(joinRes.status, 201);
+  const joinData: any = await joinRes.json();
+  assert.ok(joinData.request_id > 0);
+
+  // 4. Verify request in database has file_url and file_name
+  const reqInDb = sql(
+    "SELECT * FROM CLUB_JOIN_REQUESTS WHERE request_id=?",
+    joinData.request_id,
+  );
+  assert.equal(reqInDb.file_url, uploadData.file_url);
+  assert.equal(reqInDb.file_name, "CV_HoangVanAttach.pdf");
+
+  // 5. Club Leader views join requests and sees the attachment
+  const leaderReqs = await call("LEADER", "join-requests", "GET", undefined, 1);
+  assert.equal(leaderReqs.status, 200);
+  const foundReq = leaderReqs.data.rows.find(
+    (r: any) => r.request_id === joinData.request_id,
+  );
+  assert.ok(foundReq);
+  assert.equal(foundReq.file_url, uploadData.file_url);
+  assert.equal(foundReq.file_name, "CV_HoangVanAttach.pdf");
+
+  // 6. Test download access permissions:
+  // Applicant can download their own file
+  const appDownloadReq = new Request(
+    `http://test.local${uploadData.file_url}`,
+    {
+      method: "GET",
+      headers: { Cookie: applicantCookie },
+    },
+  );
+  const appDownloadRes = await handleApi(appDownloadReq, db, {
+    ...env,
+    BUCKET: testBucket,
+  });
+  assert.equal(appDownloadRes.status, 200);
+
+  // Club Leader can download the applicant's file
+  const leaderDownloadReq = new Request(
+    `http://test.local${uploadData.file_url}?club=1`,
+    {
+      method: "GET",
+      headers: { Cookie: cookies["LEADER"] },
+    },
+  );
+  const leaderDownloadRes = await handleApi(leaderDownloadReq, db, {
+    ...env,
+    BUCKET: testBucket,
+  });
+  assert.equal(leaderDownloadRes.status, 200);
+
+  // Unauthorized third party member without staff role cannot download
+  const strangerLogin = await call("", "auth/login", "POST", {
+    username: "demo_member",
+    password: env.DEMO_PASSWORD,
+  });
+  const strangerCookie = strangerLogin.cookie!.split(";")[0];
+  const strangerDownloadReq = new Request(
+    `http://test.local${uploadData.file_url}?club=0`,
+    {
+      method: "GET",
+      headers: { Cookie: strangerCookie },
+    },
+  );
+  const strangerDownloadRes = await handleApi(strangerDownloadReq, db, {
+    ...env,
+    BUCKET: testBucket,
+  });
+  assert.equal(strangerDownloadRes.status, 403);
+});
+
+test("Notification lifecycle: trigger, list, mark read, mark all read, and delete", async () => {
+  // 1. Initially check LEADER notifications
+  const initialNotifs = await call(
+    "LEADER",
+    "notifications",
+    "GET",
+    undefined,
+    1,
+  );
+  assert.equal(initialNotifs.status, 200);
+  assert.ok(Array.isArray(initialNotifs.data.rows));
+  const initialUnread = initialNotifs.data.unread_count;
+
+  // 2. Create a test applicant and submit a join request to Club 1
+  const appUsername = "applicant_notif_test";
+  const createAcc = await call("ADMIN", "accounts", "POST", {
+    student_code: "SV99999",
+    username: appUsername,
+    password: "Password@123",
+    full_name: "Nguyễn Văn Thông Báo",
+  });
+  assert.equal(createAcc.status, 201);
+  const appLogin = await call("", "auth/login", "POST", {
+    username: appUsername,
+    password: "Password@123",
+  });
+  assert.ok(appLogin.cookie);
+  const appCookie = appLogin.cookie!.split(";")[0];
+
+  const joinRes = await handleApi(
+    new Request("http://test.local/api/clubs/1/join?club=0", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: appCookie,
+      },
+      body: JSON.stringify({ message: "Xin chào CLB, tôi muốn gia nhập" }),
+    }),
+    db,
+    env,
+  );
+  assert.equal(joinRes.status, 201);
+  const joinData: any = await joinRes.json();
+
+  // 3. LEADER should receive a notification about the new join request
+  const leaderNotifs = await call(
+    "LEADER",
+    "notifications",
+    "GET",
+    undefined,
+    1,
+  );
+  assert.equal(leaderNotifs.status, 200);
+  assert.equal(leaderNotifs.data.unread_count, initialUnread + 1);
+  const latestNotif = leaderNotifs.data.rows.find(
+    (n: any) => n.type === "JOIN_REQUEST",
+  );
+  assert.ok(latestNotif);
+  assert.equal(latestNotif.is_read, false);
+  assert.ok(latestNotif.title.includes("Đơn xin gia nhập"));
+
+  // 4. Mark the specific notification as read
+  const markReadRes = await call(
+    "LEADER",
+    `notifications/${latestNotif.notification_id}/read`,
+    "PATCH",
+    undefined,
+    1,
+  );
+  assert.equal(markReadRes.status, 200);
+
+  // Verify it is now read
+  const afterRead = await call("LEADER", "notifications", "GET", undefined, 1);
+  const updatedNotif = afterRead.data.rows.find(
+    (n: any) => n.notification_id === latestNotif.notification_id,
+  );
+  assert.equal(updatedNotif.is_read, true);
+  assert.equal(afterRead.data.unread_count, initialUnread);
+
+  // 5. Test unread_only filter
+  const unreadOnlyRes = await call(
+    "LEADER",
+    "notifications?unread_only=true",
+    "GET",
+    undefined,
+    1,
+  );
+  assert.equal(unreadOnlyRes.status, 200);
+  assert.ok(
+    !unreadOnlyRes.data.rows.some(
+      (n: any) => n.notification_id === latestNotif.notification_id,
+    ),
+  );
+
+  // 6. Test LEADER approves join request -> Applicant gets notification
+  const approveRes = await call(
+    "LEADER",
+    `join-requests/${joinData.request_id}`,
+    "PATCH",
+    { status: "APPROVED", department_name: "Ban Kỹ thuật" },
+    1,
+  );
+  assert.equal(approveRes.status, 200);
+
+  // Applicant checks their notifications
+  const appNotifsRes = await handleApi(
+    new Request("http://test.local/api/notifications", {
+      method: "GET",
+      headers: { Cookie: appCookie },
+    }),
+    db,
+    env,
+  );
+  assert.equal(appNotifsRes.status, 200);
+  const appNotifs: any = await appNotifsRes.json();
+  assert.ok(appNotifs.rows.length >= 1);
+  const appApprovalNotif = appNotifs.rows[0];
+  assert.ok(appApprovalNotif.title.includes("phê duyệt"));
+  assert.equal(appApprovalNotif.is_read, false);
+
+  // 7. Applicant marks all notifications as read
+  const readAllRes = await handleApi(
+    new Request("http://test.local/api/notifications/read-all", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: appCookie,
+      },
+      body: JSON.stringify({}),
+    }),
+    db,
+    env,
+  );
+  assert.equal(readAllRes.status, 200);
+
+  const appNotifsAfterAll = await (
+    await handleApi(
+      new Request("http://test.local/api/notifications", {
+        method: "GET",
+        headers: { Cookie: appCookie },
+      }),
+      db,
+      env,
+    )
+  ).json();
+  assert.equal((appNotifsAfterAll as any).unread_count, 0);
+
+  // 8. Delete notification
+  const delRes = await handleApi(
+    new Request(
+      `http://test.local/api/notifications/${appApprovalNotif.notification_id}`,
+      {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: appCookie,
+        },
+      },
+    ),
+    db,
+    env,
+  );
+  assert.equal(delRes.status, 200);
+
+  const appNotifsAfterDel = await (
+    await handleApi(
+      new Request("http://test.local/api/notifications", {
+        method: "GET",
+        headers: { Cookie: appCookie },
+      }),
+      db,
+      env,
+    )
+  ).json();
+  assert.ok(
+    !(appNotifsAfterDel as any).rows.some(
+      (n: any) => n.notification_id === appApprovalNotif.notification_id,
+    ),
+  );
+});

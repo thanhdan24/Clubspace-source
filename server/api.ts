@@ -26,7 +26,7 @@ export async function handleApi(
         "Yêu cầu khác nguồn bị từ chối.",
         403,
       );
-      if (!path.startsWith("evidence"))
+      if (!path.startsWith("evidence") && !path.startsWith("attachments"))
         fail(
           req.headers.get("content-type")?.includes("application/json"),
           "Cần gửi dữ liệu JSON.",
@@ -100,6 +100,82 @@ export async function handleApi(
           "Content-Type":
             object.httpMetadata?.contentType || "application/octet-stream",
           "Content-Disposition": `attachment; filename="chung-tu.${ev[3]}"`,
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    }
+    if (path === "attachments" && req.method === "POST") {
+      fail(c.user, "Vui lòng đăng nhập để tải tệp lên.", 401);
+      fail(env.BUCKET, "Kho lưu tệp chưa được cấu hình.", 503);
+      const form = await req.formData();
+      const file = form.get("file") as File;
+      fail(
+        file && typeof file.arrayBuffer === "function",
+        "Vui lòng chọn tệp.",
+      );
+      fail(
+        file.size > 0 && file.size <= 10 * 1024 * 1024,
+        "Tệp cần nhỏ hơn hoặc bằng 10 MB.",
+      );
+      const types: Record<string, string> = {
+        "application/pdf": "pdf",
+        "image/png": "png",
+        "image/jpeg": "jpg",
+        "application/msword": "doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+          "docx",
+      };
+      const extFromName = file.name.split(".").pop()?.toLowerCase();
+      const allowedExts: Record<string, string> = {
+        pdf: "pdf",
+        png: "png",
+        jpg: "jpg",
+        jpeg: "jpg",
+        doc: "doc",
+        docx: "docx",
+      };
+      const ext = types[file.type] || (extFromName && allowedExts[extFromName]);
+      fail(ext, "Chỉ nhận tệp PDF, PNG, JPG, JPEG, DOC hoặc DOCX.");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const key = `requests/${c.user.user_id}/${crypto.randomUUID()}.${ext}`;
+      await env.BUCKET.put(key, bytes, {
+        httpMetadata: { contentType: file.type || "application/octet-stream" },
+        customMetadata: {
+          user_id: String(c.user.user_id),
+          original_name: file.name,
+        },
+      });
+      return json(
+        {
+          file_url: "/api/attachments/" + key,
+          file_name: file.name,
+          size: file.size,
+        },
+        201,
+      );
+    }
+    const attMatch = path.match(
+      /^attachments\/requests\/(\d+)\/([a-f0-9-]+\.(pdf|png|jpg|doc|docx))$/,
+    );
+    if (attMatch && req.method === "GET") {
+      const uploaderUserId = Number(attMatch[1]);
+      fail(
+        c.user.user_id === uploaderUserId || isStaff(c) || c.admin,
+        "Bạn không có quyền xem tệp này.",
+        403,
+      );
+      fail(env.BUCKET, "Kho tệp chưa được cấu hình.", 503);
+      const object = await env.BUCKET.get(
+        `requests/${attMatch[1]}/${attMatch[2]}`,
+      );
+      fail(object, "Không tìm thấy tệp đính kèm.", 404);
+      const originalName = object.original_name || `dinh-kem.${attMatch[3]}`;
+      return new Response(object.body, {
+        headers: {
+          "Content-Type":
+            object.httpMetadata?.contentType || "application/octet-stream",
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(originalName)}"`,
           "Cache-Control": "private, no-store",
           "X-Content-Type-Options": "nosniff",
         },

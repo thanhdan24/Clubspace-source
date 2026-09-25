@@ -233,6 +233,8 @@ CREATE TABLE `CLUB_JOIN_REQUESTS` (
 	`club_id` integer NOT NULL,
 	`user_id` integer NOT NULL,
 	`message` text,
+	`file_url` text,
+	`file_name` text,
 	`status` text DEFAULT 'PENDING' NOT NULL,
 	`reviewed_by` integer,
 	`reviewed_at` text,
@@ -245,7 +247,22 @@ CREATE TABLE `CLUB_JOIN_REQUESTS` (
 	CONSTRAINT "CK_CLUB_JOIN_REQUESTS_status" CHECK(("CLUB_JOIN_REQUESTS"."status"='PENDING' OR "CLUB_JOIN_REQUESTS"."status"='APPROVED' OR "CLUB_JOIN_REQUESTS"."status"='REJECTED'))
 );--> statement-breakpoint
 CREATE INDEX `IX_CJR_club_status` ON `CLUB_JOIN_REQUESTS` (`club_id`,`status`);--> statement-breakpoint
-CREATE INDEX `IX_CJR_user_id` ON `CLUB_JOIN_REQUESTS` (`user_id`);
+CREATE INDEX `IX_CJR_user_id` ON `CLUB_JOIN_REQUESTS` (`user_id`);--> statement-breakpoint
+CREATE TABLE `NOTIFICATIONS` (
+	`notification_id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`user_id` integer NOT NULL,
+	`club_id` integer,
+	`title` text NOT NULL,
+	`content` text NOT NULL,
+	`type` text DEFAULT 'INFO' NOT NULL,
+	`link_url` text,
+	`is_read` integer DEFAULT 0 NOT NULL,
+	`created_at` text NOT NULL,
+	`read_at` text,
+	FOREIGN KEY (`club_id`) REFERENCES `CLUBS`(`club_id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`user_id`) REFERENCES `USERS`(`user_id`) ON UPDATE no action ON DELETE cascade
+);--> statement-breakpoint
+CREATE INDEX `IX_NOTIF_user_read` ON `NOTIFICATIONS` (`user_id`,`is_read`,`created_at`);--> statement-breakpoint
 CREATE VIEW vw_club_fund_summary AS
 SELECT
     c.club_id,

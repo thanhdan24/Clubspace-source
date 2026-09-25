@@ -78,7 +78,10 @@ function eventStatisticsSql(where: string) {
  * Điều này tránh lỗi SQL Server khi transaction_date có kiểu DATE.
  */
 function groupFinanceByMonth(rows: any[]) {
-  const grouped = new Map<string, { month: string; income: number; expense: number }>();
+  const grouped = new Map<
+    string,
+    { month: string; income: number; expense: number }
+  >();
 
   for (const row of rows) {
     const month = String(row.transaction_date ?? "").slice(0, 7);
@@ -293,8 +296,7 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
 
   const memberFrom =
     path === "reports" && type === "members" ? from : "0001-01-01";
-  const memberTo =
-    path === "reports" && type === "members" ? to : "9999-12-31";
+  const memberTo = path === "reports" && type === "members" ? to : "9999-12-31";
 
   const counts = await one(
     c.db,

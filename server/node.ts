@@ -12,7 +12,9 @@ const port = Number(process.env.PORT || 3001),
 try {
   await prisma.$connect();
   await prisma.$queryRawUnsafe("SELECT 1 AS ok");
-  console.log("[Supabase/Prisma] Đã kết nối thành công tới Supabase (PostgreSQL).");
+  console.log(
+    "[Supabase/Prisma] Đã kết nối thành công tới Supabase (PostgreSQL).",
+  );
 } catch (err: any) {
   console.error("[Supabase/Prisma] Lỗi kết nối database:", err.message);
   console.error("Vui lòng kiểm tra lại cấu hình DATABASE_URL trong tệp .env.");

@@ -24,9 +24,9 @@
 | :--- | :--- | :--- |
 | **Frontend** | React 18, TypeScript, Vite, Tailwind CSS | Giao diện Responsive (Desktop/Tablet/Mobile), Shadcn/Radix UI components, Lucide icons. Mặc định font hệ thống hỗ trợ tiếng Việt Unicode hoàn chỉnh. |
 | **Backend** | Node.js, Express, TypeScript (`tsx`) | RESTful API pattern, chia module theo từng nghiệp vụ tại `server/*.ts`. Kiểm thực đầu vào toàn diện bằng **Zod**. |
-| **Database** | **Supabase (PostgreSQL 15+)** | Chuyển đổi từ mô hình SQL Server gốc sang PostgreSQL trên Supabase. 15 bảng cơ sở dữ liệu + 2 Views báo cáo. |
+| **Database** | **Supabase (PostgreSQL 15+)** | Chuyển đổi từ mô hình SQL Server gốc sang PostgreSQL trên Supabase. 16 bảng cơ sở dữ liệu + 2 Views báo cáo. |
 | **ORM & Driver** | **Prisma ORM** | Schema khai báo tại [`prisma/schema.prisma`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/prisma/schema.prisma). Adapter database dùng [`server/prisma.ts`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/server/prisma.ts) tuân thủ interface `Database`. |
-| **Kiểm thử tự động** | Node.js built-in Test Runner (`node --test`) | Chạy 27 bộ test nghiệp vụ độc lập trong bộ nhớ (`tests/api.test.ts`) bằng SQLite engine (`node:sqlite` & [`tests/test-schema.sql`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/tests/test-schema.sql)). |
+| **Kiểm thử tự động** | Node.js built-in Test Runner (`node --test`) | Chạy 29 bộ test nghiệp vụ độc lập trong bộ nhớ (`tests/api.test.ts`) bằng SQLite engine (`node:sqlite` & [`tests/test-schema.sql`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/tests/test-schema.sql)). |
 | **Bảo mật & Session** | Cookie HttpOnly, SHA-256 tokens | Argon2id / bcrypt password hashing; Origin check chống CSRF; Rate limiting; Thu hồi phiên khi đổi mật khẩu/khóa tài khoản. Múi giờ hệ thống: `Asia/Ho_Chi_Minh` (UTC+7). |
 
 ---
@@ -62,9 +62,9 @@ Một yêu cầu nghiệp vụ của 4 vai trò cấp CLB chỉ hợp lệ khi c
 
 ---
 
-## 4. 27 Quy tắc Nghiệp vụ Bất biến (Business Rules: BR-01 -> BR-27)
+## 4. 28 Quy tắc Nghiệp vụ Bất biến (Business Rules: BR-01 -> BR-28)
 
-AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 27 quy tắc nghiệp vụ sau:
+AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 28 quy tắc nghiệp vụ sau:
 
 - **`BR-01`**: `username` là duy nhất trên toàn hệ thống (`UQ_USERS_username`).
 - **`BR-02`**: Mã sinh viên `student_code` (nếu có) là duy nhất trên toàn hệ thống (`UX_USERS_student_code`).
@@ -95,6 +95,7 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 27 quy tắc n
 - **`BR-25` (Khôi phục mật khẩu 2 bước an toàn - Self-service Password Reset):** Quá trình đặt lại mật khẩu gồm 2 bước độc lập: (1) Xác minh danh tính qua `username` + `email` hoặc `student_code`, sinh mã OTP 6 số và cấp token chữ ký số HMAC thời hạn 15 phút, chống brute-force qua bảng `AUTH_ATTEMPTS`. (2) Xác minh OTP, cập nhật mật khẩu mã hóa bcrypt, đồng thời hủy bỏ toàn bộ các phiên đăng nhập cũ trong `AUTH_SESSIONS` và ghi `AUDIT_LOGS`.
 - **`BR-26` (Tự động bắt đầu sự kiện - Event Auto-start Lifecycle):** Sự kiện đã công bố (`OPEN`) hoặc đã chốt danh sách (`CLOSED`) sẽ tự động chuyển trạng thái sang `ONGOING` (Đang diễn ra) khi đến ngày giờ bắt đầu (`start_at <= now()`), không yêu cầu can thiệp thủ công từ cán bộ CLB.
 - **`BR-27` (Tách bạch thẩm quyền Phê duyệt - Approval Separation):** Thủ quỹ (`TREASURER`) chỉ quản lý sổ quỹ và đề xuất chi trong phân hệ "Tài chính", không thấy menu "Phê duyệt". Phân hệ "Phê duyệt" được nâng cấp thành **Trung tâm Phê duyệt điều hành (`ApprovalCenter`)** chỉ dành cho Chủ nhiệm (`LEADER`), hợp nhất 2 tab: Phê duyệt đề nghị chi tiêu tài chính và Xét duyệt đơn xin gia nhập CLB của sinh viên.
+- **`BR-28` (Hệ thống Thông báo Thời gian thực - Real-time Notification System):** Bảng `NOTIFICATIONS` lưu trữ thông báo người dùng (`notification_id`, `user_id`, `club_id`, `title`, `content`, `type`, `link_url`, `is_read`, `created_at`, `read_at`). Tự động phát sinh thông báo khi: nộp đơn xin gia nhập (báo Leader/Officer), duyệt/từ chối đơn (báo người nộp), rời CLB (báo Leader), công bố sự kiện mới (báo toàn thể thành viên), hủy sự kiện (báo người tham gia), đăng ký sự kiện cần duyệt (báo Leader/Officer), duyệt/từ chối đăng ký sự kiện (báo người đăng ký), ghi nhận điểm danh (báo người tham dự), đề xuất duyệt chi (báo Leader), duyệt/từ chối chi (báo người tạo). Giao diện có badge đếm unread, lọc "Tất cả"/"Chưa đọc", đánh dấu đã đọc đơn lẻ/tất cả, polling chu kỳ 30s và in-app toast notification khi có thông báo mới.
 
 ---
 

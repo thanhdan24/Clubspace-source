@@ -139,16 +139,16 @@ export function EventMini({ event }: any) {
 }
 export default function Dashboard() {
   const {
-    session,
-    can,
-    navigate,
-    activeClub,
-    staff,
-    mutate,
-    reloadSession,
-    refresh,
-    club,
-  } = useApp(),
+      session,
+      can,
+      navigate,
+      activeClub,
+      staff,
+      mutate,
+      reloadSession,
+      refresh,
+      club,
+    } = useApp(),
     r = useResource("dashboard");
   const d = r.data;
   const [leaveModal, setLeaveModal] = useState(false);
@@ -529,7 +529,9 @@ export default function Dashboard() {
           onClose={() => setLeaveModal(false)}
           onConfirm={async (reason: string) => {
             await mutate(`clubs/${club}/leave`, { reason }, "POST");
-            toast.success(`Bạn đã rời câu lạc bộ ${activeClub?.club_name || ""}.`);
+            toast.success(
+              `Bạn đã rời câu lạc bộ ${activeClub?.club_name || ""}.`,
+            );
             setLeaveModal(false);
             await reloadSession(0);
             navigate("dashboard");
@@ -647,7 +649,10 @@ export function AdminDashboard() {
             <div className="dashboard-primary">
               <section className="panel">
                 <SectionHeader title="Danh sách các câu lạc bộ trong trường">
-                  <button className="text-link" onClick={() => navigate("clubs")}>
+                  <button
+                    className="text-link"
+                    onClick={() => navigate("clubs")}
+                  >
                     Xem tất cả <ArrowUpRight size={16} />
                   </button>
                 </SectionHeader>
@@ -670,7 +675,8 @@ export function AdminDashboard() {
                               <Badge value={c.club_status} />
                             </div>
                             <span className="text-xs text-muted-foreground block truncate">
-                              {c.club_code} · {num(c.active_members_count)} thành viên chính thức
+                              {c.club_code} · {num(c.active_members_count)}{" "}
+                              thành viên chính thức
                             </span>
                           </div>
                         </div>
@@ -698,16 +704,28 @@ export function AdminDashboard() {
                 <SectionHeader title="Phân bổ tài khoản theo trạng thái" />
                 <div className="grid grid-cols-3 gap-4 my-2 text-center">
                   <div className="p-3.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                    <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium block">Đang hoạt động</span>
-                    <strong className="text-xl font-bold text-emerald-800 dark:text-emerald-300">{num(d.accounts?.active)}</strong>
+                    <span className="text-xs text-emerald-700 dark:text-emerald-400 font-medium block">
+                      Đang hoạt động
+                    </span>
+                    <strong className="text-xl font-bold text-emerald-800 dark:text-emerald-300">
+                      {num(d.accounts?.active)}
+                    </strong>
                   </div>
                   <div className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                    <span className="text-xs text-amber-700 dark:text-amber-400 font-medium block">Tạm khóa</span>
-                    <strong className="text-xl font-bold text-amber-800 dark:text-amber-300">{num(d.accounts?.locked)}</strong>
+                    <span className="text-xs text-amber-700 dark:text-amber-400 font-medium block">
+                      Tạm khóa
+                    </span>
+                    <strong className="text-xl font-bold text-amber-800 dark:text-amber-300">
+                      {num(d.accounts?.locked)}
+                    </strong>
                   </div>
                   <div className="p-3.5 rounded-lg bg-slate-500/10 border border-slate-500/20">
-                    <span className="text-xs text-muted-foreground font-medium block">Chưa kích hoạt</span>
-                    <strong className="text-xl font-bold text-foreground">{num(d.accounts?.inactive)}</strong>
+                    <span className="text-xs text-muted-foreground font-medium block">
+                      Chưa kích hoạt
+                    </span>
+                    <strong className="text-xl font-bold text-foreground">
+                      {num(d.accounts?.inactive)}
+                    </strong>
                   </div>
                 </div>
               </section>
@@ -758,7 +776,10 @@ export function AdminDashboard() {
 
               <section className="panel">
                 <SectionHeader title="Nhật ký an ninh gần nhất">
-                  <button className="text-link" onClick={() => navigate("audit")}>
+                  <button
+                    className="text-link"
+                    onClick={() => navigate("audit")}
+                  >
                     Chi tiết <ArrowUpRight size={16} />
                   </button>
                 </SectionHeader>
@@ -770,11 +791,16 @@ export function AdminDashboard() {
                         className="text-xs p-2.5 rounded-lg border border-border/50 bg-muted/20"
                       >
                         <div className="flex items-center justify-between font-semibold">
-                          <span className="text-primary">{actionLabel(a.action_code)}</span>
-                          <span className="text-muted-foreground text-[11px]">{dateText(a.created_at, true)}</span>
+                          <span className="text-primary">
+                            {actionLabel(a.action_code)}
+                          </span>
+                          <span className="text-muted-foreground text-[11px]">
+                            {dateText(a.created_at, true)}
+                          </span>
                         </div>
                         <div className="text-muted-foreground mt-0.5 truncate">
-                          {a.full_name || a.username || "Hệ thống"} {a.club_name ? `· ${a.club_name}` : ""}
+                          {a.full_name || a.username || "Hệ thống"}{" "}
+                          {a.club_name ? `· ${a.club_name}` : ""}
                         </div>
                       </div>
                     ))

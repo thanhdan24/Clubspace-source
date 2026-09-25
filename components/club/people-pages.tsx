@@ -19,6 +19,10 @@ import {
   Clock,
   Loader2,
   LogOut,
+  Upload,
+  Paperclip,
+  FileText,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -140,7 +144,7 @@ export function JoinRequestsSection({
 }: {
   hideTitle?: boolean;
 }) {
-  const { mutate, refresh } = useApp();
+  const { club, mutate, refresh } = useApp();
   const reqFilter = useFilters();
   const reqResource = useResource("join-requests?" + reqFilter.query);
   const [approveModal, setApproveModal] = useState<Row | null>(null);
@@ -216,6 +220,34 @@ export function JoinRequestsSection({
                 ),
               },
               {
+                key: "attachment",
+                title: "HỒ SƠ ĐÍNH KÈM",
+                render: (r: Row) =>
+                  r.file_url ? (
+                    <Button
+                      asChild
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs gap-1.5 font-medium border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
+                    >
+                      <a
+                        href={r.file_url + "?club=" + club}
+                        download={r.file_name || "ho-so-dinh-kem"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={r.file_name || "Xem tệp đính kèm"}
+                      >
+                        <Paperclip size={13} />
+                        <span className="max-w-[120px] truncate">
+                          {r.file_name || "Tải hồ sơ"}
+                        </span>
+                      </a>
+                    </Button>
+                  ) : (
+                    <span className="text-muted text-xs">—</span>
+                  ),
+              },
+              {
                 key: "created_at",
                 title: "NGÀY NỘP",
                 render: (r: Row) => dateText(r.created_at, true),
@@ -276,9 +308,39 @@ export function JoinRequestsSection({
                   <span className="text-muted block text-xs mb-1 font-medium">
                     Lời nhắn của sinh viên:
                   </span>
-                  <p className="italic font-normal">
-                    "{approveModal.message}"
-                  </p>
+                  <p className="italic font-normal">"{approveModal.message}"</p>
+                </div>
+              )}
+              {approveModal.file_url && (
+                <div className="flex items-center justify-between p-3.5 rounded-xl border border-primary/20 bg-primary/5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <FileText size={18} className="text-primary shrink-0" />
+                    <div className="min-w-0">
+                      <span className="text-xs font-semibold text-foreground truncate block">
+                        {approveModal.file_name ||
+                          "Hồ sơ đính kèm của ứng viên"}
+                      </span>
+                      <span className="text-[11px] text-muted block">
+                        Tệp nộp kèm đơn đăng ký
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1 text-primary shrink-0 font-medium"
+                  >
+                    <a
+                      href={approveModal.file_url + "?club=" + club}
+                      download={approveModal.file_name || "ho-so"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Download size={13} />
+                      Tải về
+                    </a>
+                  </Button>
                 </div>
               )}
               <div className="field">
@@ -288,21 +350,30 @@ export function JoinRequestsSection({
                   value={selectedDept}
                   onChange={setSelectedDept}
                   options={[
-                    { value: "Ban Thành viên", label: "Ban Thành viên (Chung)" },
-                    { value: "Ban Chuyên môn", label: "Ban Chuyên môn / Học thuật" },
+                    {
+                      value: "Ban Thành viên",
+                      label: "Ban Thành viên (Chung)",
+                    },
+                    {
+                      value: "Ban Chuyên môn",
+                      label: "Ban Chuyên môn / Học thuật",
+                    },
                     { value: "Ban Kỹ thuật", label: "Ban Kỹ thuật / Dự án" },
-                    { value: "Ban Truyền thông", label: "Ban Truyền thông & Báo chí" },
+                    {
+                      value: "Ban Truyền thông",
+                      label: "Ban Truyền thông & Báo chí",
+                    },
                     { value: "Ban Sự kiện", label: "Ban Sự kiện & Hoạt động" },
-                    { value: "Ban Đối ngoại", label: "Ban Đối ngoại & Tài trợ" },
+                    {
+                      value: "Ban Đối ngoại",
+                      label: "Ban Đối ngoại & Tài trợ",
+                    },
                   ]}
                 />
               </div>
             </div>
             <div className="editor-footer">
-              <Button
-                variant="outline"
-                onClick={() => setApproveModal(null)}
-              >
+              <Button variant="outline" onClick={() => setApproveModal(null)}>
                 Hủy
               </Button>
               <Button
@@ -363,10 +434,10 @@ export function Members() {
     isOfficerOrLeader ? "join-requests?status=PENDING" : null,
   );
   const [editing, setEditing] = useState<Row | null>(
-    typeof window !== "undefined" && window.location.hash.includes("?new")
-      ? {}
-      : null,
-  ),
+      typeof window !== "undefined" && window.location.hash.includes("?new")
+        ? {}
+        : null,
+    ),
     [view, setView] = useState<number | null>(null);
   const fields: Field[] = [
     ...(!editing?.club_member_id
@@ -433,7 +504,6 @@ export function Members() {
           </Button>
         )}
       </PageTitle>
-
       {isOfficerOrLeader && (
         <Tabs
           value={tab}
@@ -445,15 +515,12 @@ export function Members() {
             <TabsTrigger value="requests">
               Đơn xin gia nhập
               {Number(pendingRequests.data?.total) > 0 && (
-                <span className="tab-count">
-                  {pendingRequests.data.total}
-                </span>
+                <span className="tab-count">{pendingRequests.data.total}</span>
               )}
             </TabsTrigger>
           </TabsList>
         </Tabs>
       )}
-
       {tab === "members" ? (
         <section className="panel">
           <Filters {...f} statuses={memberStatuses} />
@@ -510,7 +577,6 @@ export function Members() {
       ) : (
         <JoinRequestsSection hideTitle={true} />
       )}
-
       {editing && (
         <Editor
           title={
@@ -1034,7 +1100,8 @@ export function ClubSettings() {
   );
 }
 export function Profile() {
-  const { mutate, logout, reloadSession, session, refresh, navigate } = useApp(),
+  const { mutate, logout, reloadSession, session, refresh, navigate } =
+      useApp(),
     r = useResource("profile");
   const [edit, setEdit] = useState(false),
     [password, setPassword] = useState(false),
@@ -1265,12 +1332,116 @@ export function Audit() {
   );
 }
 
+function AttachmentUpload({
+  fileUrl,
+  fileName,
+  onUpload,
+  onRemove,
+  disabled = false,
+}: {
+  fileUrl?: string | null;
+  fileName?: string | null;
+  onUpload: (fileUrl: string, fileName: string) => void;
+  onRemove: () => void;
+  disabled?: boolean;
+}) {
+  const [uploading, setUploading] = useState(false);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("Tệp quá lớn. Vui lòng chọn tệp nhỏ hơn 10 MB.");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const res = await fetchApi("attachments", 0, {
+        method: "POST",
+        body: form,
+      });
+      onUpload(res.file_url, res.file_name);
+      toast.success("Đã tải tệp lên thành công!");
+    } catch (err: any) {
+      toast.error(err.message || "Không thể tải tệp lên.");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  if (fileUrl) {
+    return (
+      <div className="flex items-center justify-between p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0">
+            <FileText size={18} />
+          </div>
+          <div className="min-w-0">
+            <span className="text-xs font-semibold text-foreground truncate block">
+              {fileName || "Tệp đính kèm"}
+            </span>
+            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+              Đã tải lên sẵn sàng gửi kèm đơn
+            </span>
+          </div>
+        </div>
+        {!disabled && (
+          <button
+            type="button"
+            className="p-1 text-muted hover:text-rose-600 rounded-md transition-colors"
+            onClick={onRemove}
+            title="Xóa tệp này"
+          >
+            <X size={16} />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="attachment-dropzone">
+      <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-primary/50 hover:bg-muted/30 transition-all text-center">
+        <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center mb-1.5">
+          {uploading ? (
+            <Loader2 size={18} className="animate-spin" />
+          ) : (
+            <Upload size={18} />
+          )}
+        </div>
+        <span className="text-xs font-semibold text-foreground">
+          {uploading
+            ? "Đang tải tệp lên máy chủ..."
+            : "Nhấn để chọn tệp hồ sơ đính kèm"}
+        </span>
+        <span className="text-[11px] text-muted mt-0.5">
+          PDF, Word (DOC, DOCX), Ảnh (PNG, JPG) · Tối đa 10 MB
+        </span>
+        <input
+          type="file"
+          className="hidden"
+          disabled={uploading || disabled}
+          accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg"
+          onChange={handleFileChange}
+        />
+      </label>
+    </div>
+  );
+}
+
 export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
   const { session, switchClub, mutate, refresh, reloadSession } = useApp();
   const r = useResource("clubs");
   const [applyingClub, setApplyingClub] = useState<Row | null>(null);
   const [leavingClub, setLeavingClub] = useState<Row | null>(null);
   const [message, setMessage] = useState("");
+  const [fileUrl, setFileUrl] = useState("");
+  const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
 
   return (
@@ -1292,7 +1463,9 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                 Chào mừng bạn đến với Clubspace! 🎉
               </h2>
               <p className="text-sm text-emerald-800 leading-relaxed">
-                Bạn hiện chưa là thành viên của câu lạc bộ nào. Hãy khám phá các câu lạc bộ dưới đây và bấm <strong>"Đăng ký tham gia"</strong> để bắt đầu sinh hoạt cùng các bạn sinh viên nhé!
+                Bạn hiện chưa là thành viên của câu lạc bộ nào. Hãy khám phá các
+                câu lạc bộ dưới đây và bấm <strong>"Đăng ký tham gia"</strong>{" "}
+                để bắt đầu sinh hoạt cùng các bạn sinh viên nhé!
               </p>
             </div>
           </div>
@@ -1318,7 +1491,8 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
               <h2>{c.club_name}</h2>
               <p>{c.description || "Chưa có mô tả cho câu lạc bộ này."}</p>
               <small>
-                {c.club_code} · {c.active_members_count ?? 0} thành viên · Thành lập {dateText(c.founded_date)}
+                {c.club_code} · {c.active_members_count ?? 0} thành viên · Thành
+                lập {dateText(c.founded_date)}
               </small>
               <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
                 {c.is_member ? (
@@ -1345,6 +1519,11 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                   <div className="flex items-center justify-between w-full text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-xl border border-amber-200">
                     <span className="inline-flex items-center gap-1 font-medium">
                       <Clock size={14} /> Đơn đang chờ CLB duyệt
+                      {c.join_request.file_name && (
+                        <span className="ml-1 text-[11px] text-amber-800 bg-amber-200/60 px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-0.5">
+                          <Paperclip size={11} /> Có tệp
+                        </span>
+                      )}
                     </span>
                     <span className="text-muted text-[11px]">
                       {dateText(c.join_request.created_at)}
@@ -1353,7 +1532,8 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                 ) : c.join_request?.status === "REJECTED" ? (
                   <div className="flex flex-col gap-2 w-full">
                     <div className="text-xs text-rose-700 bg-rose-50 px-3 py-2 rounded-xl border border-rose-200">
-                      <strong>Đơn trước bị từ chối:</strong> {c.join_request.review_reason || "Chưa đạt tiêu chí"}
+                      <strong>Đơn trước bị từ chối:</strong>{" "}
+                      {c.join_request.review_reason || "Chưa đạt tiêu chí"}
                     </div>
                     <Button
                       variant="default"
@@ -1361,6 +1541,8 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                       onClick={() => {
                         setApplyingClub(c);
                         setMessage("");
+                        setFileUrl("");
+                        setFileName("");
                       }}
                     >
                       Đăng ký lại
@@ -1373,6 +1555,8 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                     onClick={() => {
                       setApplyingClub(c);
                       setMessage("");
+                      setFileUrl("");
+                      setFileName("");
                     }}
                   >
                     Đăng ký tham gia
@@ -1395,7 +1579,8 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                 Đăng ký tham gia {applyingClub.club_name}
               </DialogTitle>
               <DialogDescription>
-                Đơn đăng ký của bạn sẽ được gửi tới Ban chủ nhiệm câu lạc bộ để xét duyệt.
+                Đơn đăng ký của bạn sẽ được gửi tới Ban chủ nhiệm câu lạc bộ để
+                xét duyệt.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
@@ -1415,7 +1600,8 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                 <div>
                   <span className="text-muted block text-xs">Khoa / Lớp</span>
                   <span>
-                    {session.user.faculty || "—"} · {session.user.class_name || "—"}
+                    {session.user.faculty || "—"} ·{" "}
+                    {session.user.class_name || "—"}
                   </span>
                 </div>
               </div>
@@ -1426,7 +1612,7 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                 </label>
                 <textarea
                   id="join-message"
-                  rows={4}
+                  rows={3}
                   value={message}
                   maxLength={1000}
                   placeholder="Ví dụ: Em muốn ứng tuyển vào Ban Kỹ thuật / Ban Truyền thông. Em có kỹ năng tổ chức sự kiện..."
@@ -1435,6 +1621,30 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                 />
                 <small className="text-muted">
                   Giới thiệu ngắn gọn lý do bạn muốn tham gia CLB này.
+                </small>
+              </div>
+
+              <div className="field">
+                <label>
+                  Hồ sơ / Minh chứng đính kèm (CV, Portfolio, Giấy chứng nhận...
+                  nếu có)
+                </label>
+                <AttachmentUpload
+                  fileUrl={fileUrl}
+                  fileName={fileName}
+                  onUpload={(url, name) => {
+                    setFileUrl(url);
+                    setFileName(name);
+                  }}
+                  onRemove={() => {
+                    setFileUrl("");
+                    setFileName("");
+                  }}
+                  disabled={busy}
+                />
+                <small className="text-muted">
+                  Đính kèm CV hoặc các tài liệu liên quan giúp Ban chủ nhiệm
+                  đánh giá đơn của bạn nhanh hơn.
                 </small>
               </div>
             </div>
@@ -1453,9 +1663,13 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                   try {
                     await mutate("clubs/" + applyingClub.club_id + "/join", {
                       message,
+                      file_url: fileUrl || undefined,
+                      file_name: fileName || undefined,
                     });
                     toast.success("Đã gửi đơn đăng ký tham gia câu lạc bộ!");
                     setApplyingClub(null);
+                    setFileUrl("");
+                    setFileName("");
                     refresh();
                   } catch (e: any) {
                     toast.error(e.message);
@@ -1464,7 +1678,8 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                   }
                 }}
               >
-                {busy && <Loader2 className="animate-spin" size={16} />} Gửi đơn đăng ký
+                {busy && <Loader2 className="animate-spin" size={16} />} Gửi đơn
+                đăng ký
               </Button>
             </div>
           </DialogContent>
@@ -1477,7 +1692,11 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
           reason={true}
           onClose={() => setLeavingClub(null)}
           onConfirm={async (reason: string) => {
-            await mutate(`clubs/${leavingClub.club_id}/leave`, { reason }, "POST");
+            await mutate(
+              `clubs/${leavingClub.club_id}/leave`,
+              { reason },
+              "POST",
+            );
             toast.success(`Bạn đã rời câu lạc bộ ${leavingClub.club_name}.`);
             setLeavingClub(null);
             await reloadSession(0);
@@ -1488,4 +1707,3 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
     </>
   );
 }
-

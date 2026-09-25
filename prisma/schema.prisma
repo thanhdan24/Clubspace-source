@@ -24,6 +24,7 @@ model Club {
   user_roles    UserRole[]
   audit_logs    AuditLog[]
   join_requests ClubJoinRequest[]
+  notifications Notification[]
 
   @@map("CLUBS")
 }
@@ -55,6 +56,7 @@ model User {
   sessions               AuthSession[]
   join_requests          ClubJoinRequest[]      @relation("JoinRequestUser")
   reviewed_join_requests ClubJoinRequest[]      @relation("JoinRequestReviewer")
+  notifications          Notification[]
 
   @@map("USERS")
 }
@@ -292,6 +294,8 @@ model ClubJoinRequest {
   club_id       Int       @map("club_id")
   user_id       Int       @map("user_id")
   message       String?   @db.VarChar(1000) @map("message")
+  file_url      String?   @db.VarChar(500) @map("file_url")
+  file_name     String?   @db.VarChar(255) @map("file_name")
   status        String    @default("PENDING") @db.VarChar(20) @map("status")
   reviewed_by   Int?      @map("reviewed_by")
   reviewed_at   DateTime? @db.Timestamp(0) @map("reviewed_at")
@@ -307,3 +311,23 @@ model ClubJoinRequest {
   @@index([user_id], name: "IX_CJR_user_id")
   @@map("CLUB_JOIN_REQUESTS")
 }
+
+model Notification {
+  notification_id Int       @id @default(autoincrement()) @map("notification_id")
+  user_id         Int       @map("user_id")
+  club_id         Int?      @map("club_id")
+  title           String    @db.VarChar(200) @map("title")
+  content         String    @db.Text @map("content")
+  type            String    @default("INFO") @db.VarChar(50) @map("type")
+  link_url        String?   @db.VarChar(255) @map("link_url")
+  is_read         Int       @default(0) @db.SmallInt @map("is_read")
+  created_at      DateTime  @default(now()) @db.Timestamp(0) @map("created_at")
+  read_at         DateTime? @db.Timestamp(0) @map("read_at")
+
+  user User  @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  club Club? @relation(fields: [club_id], references: [club_id], onDelete: Cascade)
+
+  @@index([user_id, is_read, created_at], name: "IX_NOTIF_user_read")
+  @@map("NOTIFICATIONS")
+}
+

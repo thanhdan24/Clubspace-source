@@ -152,7 +152,9 @@ function EventEditor({ event = {}, onClose, onSaved }: any) {
       onSave={async (v: Row) => {
         const curToday = localNow().slice(0, 10);
         if (!event.event_id && v.start_at.slice(0, 10) < curToday)
-          throw new Error("Thời gian bắt đầu sự kiện phải từ ngày hôm nay trở đi.");
+          throw new Error(
+            "Thời gian bắt đầu sự kiện phải từ ngày hôm nay trở đi.",
+          );
         if (v.end_at <= v.start_at)
           throw new Error("Thời gian kết thúc phải sau khi bắt đầu.");
         if (v.registration_deadline > v.start_at)
@@ -178,11 +180,7 @@ export function Events() {
     [view, setView] = useState("grid"),
     [editing, setEditing] = useState(false),
     r = useResource(
-      "events?" +
-        f.query +
-        "&type=" +
-        type +
-        (scope ? "&scope=" + scope : ""),
+      "events?" + f.query + "&type=" + type + (scope ? "&scope=" + scope : ""),
     );
   useEffect(() => {
     if (window.location.hash.includes("?new") && can("OFFICER", "LEADER"))
@@ -861,7 +859,8 @@ export function EventDetail({ id }: any) {
                             disabled={
                               e.event_status !== "OPEN" ||
                               e.registration_deadline < localNow() ||
-                              (r.data.membership && r.data.membership.member_status !== "ACTIVE")
+                              (r.data.membership &&
+                                r.data.membership.member_status !== "ACTIVE")
                             }
                             onClick={() =>
                               mutate(`events/${id}/registration`, {

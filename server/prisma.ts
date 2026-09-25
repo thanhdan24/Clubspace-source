@@ -22,6 +22,7 @@ const TABLE_NAMES = [
   "AUTH_ATTEMPTS",
   "APP_SETUP",
   "CLUB_JOIN_REQUESTS",
+  "NOTIFICATIONS",
   "vw_club_fund_summary",
   "vw_event_statistics",
 ];
@@ -46,7 +47,11 @@ function normalizeValue(v: unknown): unknown {
   ) {
     const raw = v.replace(" ", "T");
     const iso = raw.includes("T")
-      ? (raw.length === 16 ? raw + ":00Z" : raw.endsWith("Z") ? raw : raw + "Z")
+      ? raw.length === 16
+        ? raw + ":00Z"
+        : raw.endsWith("Z")
+          ? raw
+          : raw + "Z"
       : raw + "T00:00:00Z";
     const d = new Date(iso);
     if (!isNaN(d.getTime())) return d;
@@ -59,10 +64,7 @@ function serializeRow(row: Record<string, unknown>): Row {
     Object.entries(row).map(([k, v]) => {
       if (typeof v === "bigint") return [k, Number(v)];
       if (v instanceof Date) {
-        return [
-          k,
-          v.toISOString().slice(0, /_date$/.test(k) ? 10 : 19),
-        ];
+        return [k, v.toISOString().slice(0, /_date$/.test(k) ? 10 : 19)];
       }
       return [k, v];
     }),
@@ -169,7 +171,10 @@ export class PrismaDatabase implements Database {
   }
 
   async batch(statements: Statement[]) {
-    if ("$transaction" in this.client && typeof this.client.$transaction === "function") {
+    if (
+      "$transaction" in this.client &&
+      typeof this.client.$transaction === "function"
+    ) {
       return await this.client.$transaction(
         async (tx: Prisma.TransactionClient) => {
           const results = [];

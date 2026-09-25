@@ -377,7 +377,10 @@ export function useResource(path: string | null) {
 // ----------------------------------------------------
 export function DashboardSkeleton() {
   return (
-    <div className="skeleton-dashboard" aria-label="Đang tải dữ liệu tổng quan...">
+    <div
+      className="skeleton-dashboard"
+      aria-label="Đang tải dữ liệu tổng quan..."
+    >
       <div className="skeleton-banner skeleton-shimmer" />
       <div className="metrics-grid">
         {[1, 2, 3, 4].map((i) => (
@@ -424,7 +427,10 @@ export function DashboardSkeleton() {
 
 export function TableSkeleton({ rows = 6 }: { rows?: number }) {
   return (
-    <div className="panel skeleton-table-container" aria-label="Đang tải danh sách...">
+    <div
+      className="panel skeleton-table-container"
+      aria-label="Đang tải danh sách..."
+    >
       <div className="filterbar">
         <Skeleton className="h-10 w-64 rounded-xl" />
         <Skeleton className="h-10 w-36 rounded-xl" />
@@ -434,11 +440,21 @@ export function TableSkeleton({ rows = 6 }: { rows?: number }) {
         <table>
           <thead>
             <tr>
-              <th style={{ width: "48px" }}><Skeleton className="h-4 w-6" /></th>
-              <th><Skeleton className="h-4 w-32" /></th>
-              <th><Skeleton className="h-4 w-24" /></th>
-              <th><Skeleton className="h-4 w-20" /></th>
-              <th style={{ width: "90px" }}><Skeleton className="h-4 w-16" /></th>
+              <th style={{ width: "48px" }}>
+                <Skeleton className="h-4 w-6" />
+              </th>
+              <th>
+                <Skeleton className="h-4 w-32" />
+              </th>
+              <th>
+                <Skeleton className="h-4 w-24" />
+              </th>
+              <th>
+                <Skeleton className="h-4 w-20" />
+              </th>
+              <th style={{ width: "90px" }}>
+                <Skeleton className="h-4 w-16" />
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -516,7 +532,10 @@ export function DetailSkeleton() {
           <Skeleton className="h-6 w-48" />
           <div className="space-y-3 pt-2">
             {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex justify-between py-2.5 border-b border-slate-100">
+              <div
+                key={i}
+                className="flex justify-between py-2.5 border-b border-slate-100"
+              >
                 <Skeleton className="h-4 w-28" />
                 <Skeleton className="h-4 w-44" />
               </div>

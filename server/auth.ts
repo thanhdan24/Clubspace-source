@@ -62,8 +62,7 @@ export async function authRoute(
   if (path === "auth/info" && req.method === "GET")
     return json({
       demo: env.DEMO_MODE === "true",
-      database:
-        db.dialect === "postgres" ? "Supabase PostgreSQL" : "Local",
+      database: db.dialect === "postgres" ? "Supabase PostgreSQL" : "Local",
     });
   if (path === "auth/login" && req.method === "POST") {
     const b = z
@@ -285,11 +284,9 @@ export async function authRoute(
     await execute(db, "DELETE FROM AUTH_SESSIONS WHERE user_id=?", [
       user.user_id,
     ]);
-    await execute(
-      db,
-      "DELETE FROM AUTH_ATTEMPTS WHERE identifier=?",
-      [identifier],
-    );
+    await execute(db, "DELETE FROM AUTH_ATTEMPTS WHERE identifier=?", [
+      identifier,
+    ]);
     await execute(
       db,
       "INSERT INTO AUDIT_LOGS (user_id,club_id,action_code,entity_name,entity_id,old_value,new_value,created_at) VALUES (?,null,'RESET_PASSWORD','USERS',?,null,?,?)",
@@ -340,21 +337,29 @@ export async function context(
                 )?.club_id
               : 0),
         );
-  const isPublicEventAccess =
-    /^\/api\/events\/\d+(?:\/registration)?\/?$/.test(
-      new URL(req.url).pathname,
-    );
-  if (club && !isPublicEventAccess)
+  const isPublicEventAccess = /^\/api\/events\/\d+(?:\/registration)?\/?$/.test(
+    new URL(req.url).pathname,
+  );
+  const isAttachmentAccess = /^\/api\/attachments(?:\/.*)?$/.test(
+    new URL(req.url).pathname,
+  );
+  if (club && !isPublicEventAccess && !isAttachmentAccess)
     fail(
       admin || grants.some((r) => Number(r.club_id) === club),
       "Bạn không có quyền truy cập câu lạc bộ này.",
       403,
     );
   const accountOrSettings =
-    /^\/api\/(club|clubs(?:\/\d+\/(?:join|leave))?|my-join-requests|join-requests(?:\/\d+)?|profile(?:\/password)?|accounts(?:\/\d+)?|roles|role-catalog|admin\/overview)\/?$/.test(
+    /^\/api\/(club|clubs(?:\/\d+\/(?:join|leave))?|my-join-requests|join-requests(?:\/\d+)?|notifications(?:\/.*)?|profile(?:\/password)?|accounts(?:\/\d+)?|roles|role-catalog|admin\/overview|attachments(?:\/.*)?)\/?$/.test(
       new URL(req.url).pathname,
     );
-  if (club && req.method !== "GET" && !accountOrSettings && !isPublicEventAccess) {
+  if (
+    club &&
+    req.method !== "GET" &&
+    !accountOrSettings &&
+    !isPublicEventAccess &&
+    !isAttachmentAccess
+  ) {
     const r = await one(db, "SELECT club_status FROM CLUBS WHERE club_id=?", [
       club,
     ]);

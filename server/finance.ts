@@ -21,6 +21,8 @@ import {
   list,
   paging,
   csv,
+  createNotification,
+  notifyClubRoles,
   type Context,
 } from "./core";
 const transactionForm = z.object({
@@ -331,6 +333,24 @@ export async function financeRoute(c: Context, path: string, req: Request) {
         ),
       ],
     );
+    if (b.action === "submit") {
+      await notifyClubRoles(c.db, c.club, ["LEADER"], {
+        title: `Đề nghị duyệt chi: #${old.transaction_id}`,
+        content: `Thủ quỹ ${c.user.full_name} đã gửi đề nghị phê duyệt chi cho khoản "${old.description}" (${Number(old.amount).toLocaleString("vi-VN")} đ).`,
+        type: "FINANCE",
+        linkUrl: "finance",
+      });
+    }
+    if (["approve", "reject"].includes(b.action)) {
+      await createNotification(c.db, {
+        userId: old.created_by,
+        clubId: c.club,
+        title: `Đề xuất chi tiêu #${old.transaction_id}: ${b.action === "approve" ? "Đã được phê duyệt" : "Bị từ chối"}`,
+        content: `Khoản chi "${old.description}" (${Number(old.amount).toLocaleString("vi-VN")} đ) đã ${b.action === "approve" ? "được Chủ nhiệm phê duyệt." : "bị từ chối" + (b.reason ? `: ${b.reason}` : ".")}`,
+        type: "FINANCE",
+        linkUrl: "finance",
+      });
+    }
     return json({ ok: true });
   }
   return null;

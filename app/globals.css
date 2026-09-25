@@ -72,7 +72,9 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-sans:
+    "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
@@ -87,7 +89,7 @@ html {
 body {
   margin: 0;
   background-color: #f8fafc;
-  background-image: 
+  background-image:
     radial-gradient(at 0% 0%, rgba(16, 185, 129, 0.035) 0px, transparent 50%),
     radial-gradient(at 100% 0%, rgba(59, 130, 246, 0.025) 0px, transparent 40%),
     radial-gradient(at 50% 100%, rgba(16, 185, 129, 0.025) 0px, transparent 50%);
@@ -151,7 +153,9 @@ svg {
 input,
 textarea {
   color: #0f172a;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 input::placeholder,
 textarea::placeholder {
@@ -244,7 +248,11 @@ input[type="datetime-local"] {
   gap: 8px;
   padding: 6px 10px;
   border-radius: 9px;
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.16) 0%, rgba(217, 119, 6, 0.08) 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.16) 0%,
+    rgba(217, 119, 6, 0.08) 100%
+  );
   border: 1px solid rgba(245, 158, 11, 0.28);
   color: #fbbf24;
   font-size: 11px;
@@ -291,7 +299,11 @@ input[type="datetime-local"] {
   color: #ffffff !important;
 }
 .nav-link[data-active="true"] {
-  background: linear-gradient(90deg, rgba(16, 185, 129, 0.18) 0%, rgba(16, 185, 129, 0.04) 100%) !important;
+  background: linear-gradient(
+    90deg,
+    rgba(16, 185, 129, 0.18) 0%,
+    rgba(16, 185, 129, 0.04) 100%
+  ) !important;
   color: #34d399 !important;
   font-weight: 600;
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
@@ -301,7 +313,11 @@ input[type="datetime-local"] {
   color: #34d399 !important;
 }
 .nav-link[data-active="true"]:hover {
-  background: linear-gradient(90deg, rgba(16, 185, 129, 0.24) 0%, rgba(16, 185, 129, 0.08) 100%) !important;
+  background: linear-gradient(
+    90deg,
+    rgba(16, 185, 129, 0.24) 0%,
+    rgba(16, 185, 129, 0.08) 100%
+  ) !important;
 }
 .nav-shortcut {
   margin-left: auto;
@@ -345,7 +361,11 @@ input[type="datetime-local"] {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.4) 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(16, 185, 129, 0.25) 0%,
+    rgba(5, 150, 105, 0.4) 100%
+  );
   color: #34d399;
   border: 1px solid rgba(52, 211, 153, 0.3);
   display: grid;
@@ -409,7 +429,9 @@ input[type="datetime-local"] {
 }
 .sidebar-profile > svg {
   color: #64748b;
-  transition: transform 0.15s ease, color 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    color 0.15s ease;
 }
 .sidebar-profile:hover > svg {
   color: #34d399;
@@ -640,7 +662,9 @@ input[type="datetime-local"] {
 }
 .metric:hover {
   transform: translateY(-3px);
-  box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.07), 0 4px 8px -4px rgba(0, 0, 0, 0.03);
+  box-shadow:
+    0 12px 24px -6px rgba(0, 0, 0, 0.07),
+    0 4px 8px -4px rgba(0, 0, 0, 0.03);
   border-color: #cbd5e1;
 }
 .metric-top {
@@ -707,12 +731,18 @@ input[type="datetime-local"] {
   border-radius: 16px;
   min-width: 0;
   overflow: hidden;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.03), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow:
+    0 1px 3px 0 rgba(0, 0, 0, 0.03),
+    0 1px 2px -1px rgba(0, 0, 0, 0.02);
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
 }
 .panel:hover {
   border-color: #cbd5e1;
-  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.03);
+  box-shadow:
+    0 4px 12px -2px rgba(0, 0, 0, 0.05),
+    0 2px 4px -2px rgba(0, 0, 0, 0.03);
 }
 .section-header {
   display: flex;
@@ -736,7 +766,9 @@ input[type="datetime-local"] {
   gap: 5px;
   color: #059669;
   white-space: nowrap;
-  transition: color 0.15s ease, gap 0.15s ease;
+  transition:
+    color 0.15s ease,
+    gap 0.15s ease;
 }
 .text-link:hover {
   color: #047857;
@@ -827,7 +859,9 @@ input[type="datetime-local"] {
 .event-mini > svg {
   color: #cbd5e1;
   width: 16px;
-  transition: transform 0.15s ease, color 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    color 0.15s ease;
 }
 .event-mini:hover > svg {
   color: #059669;
@@ -1157,7 +1191,9 @@ input[type="datetime-local"] {
   min-width: 12px;
   position: relative;
   border-radius: 6px 6px 2px 2px;
-  transition: height 0.4s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s ease;
+  transition:
+    height 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.2s ease;
 }
 .bar:hover {
   transform: scaleY(1.03);
@@ -2591,6 +2627,17 @@ input[type="datetime-local"] {
   margin-top: 12px;
   overflow-wrap: anywhere;
 }
+.attachment-dropzone {
+  margin-top: 6px;
+}
+.attachment-dropzone label {
+  transition: all 0.2s ease;
+  background: #f8fafc;
+}
+.attachment-dropzone label:hover {
+  background: #f0fdf4;
+  border-color: #10b981;
+}
 .report-filter {
   display: flex;
   flex-wrap: wrap;
@@ -2614,8 +2661,16 @@ input[type="datetime-local"] {
 }
 .login-story {
   background:
-    radial-gradient(circle at 85% 15%, rgba(52, 211, 153, 0.2), transparent 45%),
-    radial-gradient(circle at 15% 85%, rgba(16, 185, 129, 0.15), transparent 45%),
+    radial-gradient(
+      circle at 85% 15%,
+      rgba(52, 211, 153, 0.2),
+      transparent 45%
+    ),
+    radial-gradient(
+      circle at 15% 85%,
+      rgba(16, 185, 129, 0.15),
+      transparent 45%
+    ),
     linear-gradient(155deg, #064e3b 0%, #065f46 50%, #047857 100%);
   display: flex;
   flex-direction: column;
@@ -2912,7 +2967,8 @@ input[type="datetime-local"] {
   line-height: 1.4;
 }
 .otp-code-input {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
   font-size: 16px !important;
   font-weight: 700 !important;
   letter-spacing: 3px !important;

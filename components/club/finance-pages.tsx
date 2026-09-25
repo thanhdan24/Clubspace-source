@@ -1167,7 +1167,9 @@ const HistoryIcon = Clock;
 
 export function ApprovalCenter() {
   const [tab, setTab] = useState<"expenses" | "join-requests">("expenses");
-  const pendingExpenses = useResource("finance?status=PENDING_APPROVAL&limit=1");
+  const pendingExpenses = useResource(
+    "finance?status=PENDING_APPROVAL&limit=1",
+  );
   const pendingRequests = useResource("join-requests?status=PENDING&limit=1");
 
   const expensePendingCount = Number(pendingExpenses.data?.total || 0);

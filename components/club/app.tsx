@@ -56,7 +56,15 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { AppContext, fetchApi, Avatar, labels, SelectBox, prefetchResource, clearResourceCache } from "./shared";
+import {
+  AppContext,
+  fetchApi,
+  Avatar,
+  labels,
+  SelectBox,
+  prefetchResource,
+  clearResourceCache,
+} from "./shared";
 import Dashboard, { AdminDashboard } from "./dashboard";
 import WebTools from "./web-tools";
 import Notifications from "./notifications";
@@ -131,14 +139,39 @@ const management = [
   },
 ];
 const adminNavigation = [
-  { id: "dashboard", label: "Tổng quan hệ thống", icon: LayoutDashboard, roles: ["ADMIN"] },
-  { id: "accounts", label: "Tài khoản người dùng", icon: UserRound, roles: ["ADMIN"] },
-  { id: "clubs", label: "Quản lý câu lạc bộ", icon: Building2, roles: ["ADMIN"] },
-  { id: "roles", label: "Phân quyền hệ thống", icon: ShieldCheck, roles: ["ADMIN"] },
+  {
+    id: "dashboard",
+    label: "Tổng quan hệ thống",
+    icon: LayoutDashboard,
+    roles: ["ADMIN"],
+  },
+  {
+    id: "accounts",
+    label: "Tài khoản người dùng",
+    icon: UserRound,
+    roles: ["ADMIN"],
+  },
+  {
+    id: "clubs",
+    label: "Quản lý câu lạc bộ",
+    icon: Building2,
+    roles: ["ADMIN"],
+  },
+  {
+    id: "roles",
+    label: "Phân quyền hệ thống",
+    icon: ShieldCheck,
+    roles: ["ADMIN"],
+  },
   { id: "audit", label: "Nhật ký hoạt động", icon: History, roles: ["ADMIN"] },
 ];
 const adminSupervision = [
-  { id: "explore-clubs", label: "Khám phá CLB", icon: Compass, roles: ["ADMIN"] },
+  {
+    id: "explore-clubs",
+    label: "Khám phá CLB",
+    icon: Compass,
+    roles: ["ADMIN"],
+  },
   { id: "members", label: "Thành viên CLB", icon: Users, roles: ["ADMIN"] },
   { id: "events", label: "Sự kiện CLB", icon: CalendarDays, roles: ["ADMIN"] },
   { id: "finance", label: "Tài chính CLB", icon: Wallet, roles: ["ADMIN"] },
@@ -157,13 +190,30 @@ function Brand() {
     </div>
   );
 }
-const roleInfo: Record<string, { label: string; icon: string; desc: string }> = {
-  LEADER: { label: "Chủ nhiệm CLB", icon: "👑", desc: "Toàn quyền điều hành CLB" },
-  OFFICER: { label: "Cán bộ / BTC", icon: "📋", desc: "Tổ chức sự kiện & điểm danh" },
-  TREASURER: { label: "Thủ quỹ", icon: "💰", desc: "Quản lý quỹ & sổ thu chi" },
-  MEMBER: { label: "Hội viên CLB", icon: "🎒", desc: "Đăng ký tham gia sinh hoạt" },
-  ADMIN: { label: "Quản trị viên", icon: "🛡️", desc: "Quản trị toàn trường" },
-};
+const roleInfo: Record<string, { label: string; icon: string; desc: string }> =
+  {
+    LEADER: {
+      label: "Chủ nhiệm CLB",
+      icon: "👑",
+      desc: "Toàn quyền điều hành CLB",
+    },
+    OFFICER: {
+      label: "Cán bộ / BTC",
+      icon: "📋",
+      desc: "Tổ chức sự kiện & điểm danh",
+    },
+    TREASURER: {
+      label: "Thủ quỹ",
+      icon: "💰",
+      desc: "Quản lý quỹ & sổ thu chi",
+    },
+    MEMBER: {
+      label: "Hội viên CLB",
+      icon: "🎒",
+      desc: "Đăng ký tham gia sinh hoạt",
+    },
+    ADMIN: { label: "Quản trị viên", icon: "🛡️", desc: "Quản trị toàn trường" },
+  };
 
 function Login({ onLogin, demo }: any) {
   const [mode, setMode] = useState<"login" | "forgot">("login");
@@ -259,7 +309,9 @@ function Login({ onLogin, demo }: any) {
       toast.success("Đặt lại mật khẩu thành công!");
       setUsername(forgotData?.username || forgotUser);
       setPassword("");
-      setSuccessMsg("Đặt lại mật khẩu thành công! Bạn có thể đăng nhập bằng mật khẩu mới.");
+      setSuccessMsg(
+        "Đặt lại mật khẩu thành công! Bạn có thể đăng nhập bằng mật khẩu mới.",
+      );
       setMode("login");
       setForgotStep(1);
       setForgotData(null);
@@ -287,9 +339,9 @@ function Login({ onLogin, demo }: any) {
             của <em>Câu lạc bộ Sinh viên</em>
           </h1>
           <p>
-            Nơi hội tụ các câu lạc bộ học thuật, nghệ thuật, thể thao và tình nguyện.
-            Cùng nhau tổ chức hoạt động, gắn kết hội viên và lưu giữ những kỷ niệm
-            thanh xuân rực rỡ.
+            Nơi hội tụ các câu lạc bộ học thuật, nghệ thuật, thể thao và tình
+            nguyện. Cùng nhau tổ chức hoạt động, gắn kết hội viên và lưu giữ
+            những kỷ niệm thanh xuân rực rỡ.
           </p>
 
           <div className="login-highlights">
@@ -299,7 +351,10 @@ function Login({ onLogin, demo }: any) {
               </span>
               <div>
                 <strong>Sinh hoạt & Gắn kết Hội viên</strong>
-                <small>Họp mặt định kỳ, sinh hoạt chuyên môn, dã ngoại và gắn kết thành viên</small>
+                <small>
+                  Họp mặt định kỳ, sinh hoạt chuyên môn, dã ngoại và gắn kết
+                  thành viên
+                </small>
               </div>
             </div>
             <div className="highlight-card">
@@ -308,7 +363,10 @@ function Login({ onLogin, demo }: any) {
               </span>
               <div>
                 <strong>Sự kiện, Workshop & Hoạt động</strong>
-                <small>Đăng ký tham gia, điểm danh hoạt động và cập nhật thông báo mới</small>
+                <small>
+                  Đăng ký tham gia, điểm danh hoạt động và cập nhật thông báo
+                  mới
+                </small>
               </div>
             </div>
             <div className="highlight-card">
@@ -317,7 +375,10 @@ function Login({ onLogin, demo }: any) {
               </span>
               <div>
                 <strong>Thu chi & Quỹ sinh hoạt rõ ràng</strong>
-                <small>Quản lý đóng quỹ thành viên, công khai minh bạch mọi chi phí hoạt động</small>
+                <small>
+                  Quản lý đóng quỹ thành viên, công khai minh bạch mọi chi phí
+                  hoạt động
+                </small>
               </div>
             </div>
           </div>
@@ -365,7 +426,9 @@ function Login({ onLogin, demo }: any) {
                     </div>
                   </div>
                   <div className="field">
-                    <label htmlFor="forgot-verify">Email hoặc Mã số sinh viên (MSSV)</label>
+                    <label htmlFor="forgot-verify">
+                      Email hoặc Mã số sinh viên (MSSV)
+                    </label>
                     <div className="input-with-icon">
                       <Mail size={17} className="input-icon" />
                       <Input
@@ -378,7 +441,8 @@ function Login({ onLogin, demo }: any) {
                       />
                     </div>
                     <small className="field-hint">
-                      Hệ thống đối chiếu với hồ sơ để bảo vệ an toàn danh tính của bạn.
+                      Hệ thống đối chiếu với hồ sơ để bảo vệ an toàn danh tính
+                      của bạn.
                     </small>
                   </div>
 
@@ -416,7 +480,9 @@ function Login({ onLogin, demo }: any) {
                     <div className="otp-card-header">
                       <CheckCircle2 size={18} className="otp-card-icon" />
                       <div>
-                        <strong>Xác minh thành công: {forgotData?.full_name}</strong>
+                        <strong>
+                          Xác minh thành công: {forgotData?.full_name}
+                        </strong>
                         <p className="otp-target-hint">
                           Thông tin liên kết: {forgotData?.masked_target}
                         </p>
@@ -427,19 +493,24 @@ function Login({ onLogin, demo }: any) {
                       <span className="otp-value">{forgotData?.otp_code}</span>
                     </div>
                     <p className="otp-hint">
-                      Mã OTP có hiệu lực trong 15 phút. Nhập mã này và mật khẩu mới bên dưới.
+                      Mã OTP có hiệu lực trong 15 phút. Nhập mã này và mật khẩu
+                      mới bên dưới.
                     </p>
                   </div>
 
                   <div className="field">
-                    <label htmlFor="otp-input">Mã xác thực (OTP 6 chữ số)</label>
+                    <label htmlFor="otp-input">
+                      Mã xác thực (OTP 6 chữ số)
+                    </label>
                     <div className="input-with-icon">
                       <ShieldCheck size={17} className="input-icon" />
                       <Input
                         id="otp-input"
                         value={otpInput}
                         onChange={(e) =>
-                          setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))
+                          setOtpInput(
+                            e.target.value.replace(/\D/g, "").slice(0, 6),
+                          )
                         }
                         required
                         maxLength={6}
@@ -466,16 +537,24 @@ function Login({ onLogin, demo }: any) {
                       <button
                         type="button"
                         className="password-toggle"
-                        aria-label={showNewPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                        aria-label={
+                          showNewPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"
+                        }
                         onClick={() => setShowNewPassword(!showNewPassword)}
                       >
-                        {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        {showNewPassword ? (
+                          <EyeOff size={16} />
+                        ) : (
+                          <Eye size={16} />
+                        )}
                       </button>
                     </div>
                   </div>
 
                   <div className="field">
-                    <label htmlFor="confirm-password">Xác nhận mật khẩu mới</label>
+                    <label htmlFor="confirm-password">
+                      Xác nhận mật khẩu mới
+                    </label>
                     <div className="input-with-icon">
                       <LockKeyhole size={17} className="input-icon" />
                       <Input
@@ -498,7 +577,11 @@ function Login({ onLogin, demo }: any) {
                           setShowConfirmPassword(!showConfirmPassword)
                         }
                       >
-                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        {showConfirmPassword ? (
+                          <EyeOff size={16} />
+                        ) : (
+                          <Eye size={16} />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -553,7 +636,10 @@ function Login({ onLogin, demo }: any) {
                 </span>
                 <div>
                   <h2>Đăng nhập</h2>
-                  <p>Nhập thông tin tài khoản để vào không gian sinh hoạt của bạn.</p>
+                  <p>
+                    Nhập thông tin tài khoản để vào không gian sinh hoạt của
+                    bạn.
+                  </p>
                 </div>
               </div>
 
@@ -617,7 +703,9 @@ function Login({ onLogin, demo }: any) {
                     <button
                       type="button"
                       className="password-toggle"
-                      aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                      aria-label={
+                        showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"
+                      }
                       onClick={() => setShowPassword(!showPassword)}
                     >
                       {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -629,14 +717,22 @@ function Login({ onLogin, demo }: any) {
                     {error}
                   </p>
                 )}
-                <Button type="submit" className="login-submit" disabled={!!busy}>
-                  {busy === "login" ? <Loader2 className="animate-spin" /> : null}
+                <Button
+                  type="submit"
+                  className="login-submit"
+                  disabled={!!busy}
+                >
+                  {busy === "login" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : null}
                   Đăng nhập <ArrowRight size={17} />
                 </Button>
               </form>
               {demo && (
                 <div className="demo-login">
-                  <div className="divider-label">Tài khoản trải nghiệm nhanh</div>
+                  <div className="divider-label">
+                    Tài khoản trải nghiệm nhanh
+                  </div>
                   <p>Bấm chọn vai trò để thử giao diện tương ứng:</p>
                   <div className="demo-roles">
                     {["LEADER", "OFFICER", "TREASURER", "MEMBER", "ADMIN"].map(
@@ -662,7 +758,8 @@ function Login({ onLogin, demo }: any) {
                 </div>
               )}
               <p className="login-help">
-                Chưa có tài khoản? Liên hệ Ban chủ nhiệm câu lạc bộ của bạn để được cấp quyền.
+                Chưa có tài khoản? Liên hệ Ban chủ nhiệm câu lạc bộ của bạn để
+                được cấp quyền.
               </p>
             </div>
           )}
@@ -853,14 +950,13 @@ export default function ClubApp() {
         page = <ExploreClubs />;
         break;
       default:
-        page =
-          can("ADMIN") ? (
-            <AdminDashboard />
-          ) : session.clubs.length === 0 ? (
-            <ExploreClubs onboarding />
-          ) : (
-            <Dashboard />
-          );
+        page = can("ADMIN") ? (
+          <AdminDashboard />
+        ) : session.clubs.length === 0 ? (
+          <ExploreClubs onboarding />
+        ) : (
+          <Dashboard />
+        );
     }
   return (
     <AppContext.Provider
@@ -913,9 +1009,7 @@ export default function ClubApp() {
               </span>
               <div>
                 <span>
-                  {can("ADMIN")
-                    ? "GIÁM SÁT DỮ LIỆU CLB"
-                    : "CÂU LẠC BỘ CỦA BẠN"}
+                  {can("ADMIN") ? "GIÁM SÁT DỮ LIỆU CLB" : "CÂU LẠC BỘ CỦA BẠN"}
                 </span>
                 {session.clubs.length > 0 ? (
                   <SelectBox

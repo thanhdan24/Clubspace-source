@@ -26,6 +26,8 @@ import {
   member,
   cleanUser,
   csv,
+  createNotification,
+  notifyClubRoles,
   type Context,
 } from "./core";
 export async function peopleRoute(c: Context, path: string, req: Request) {
@@ -110,13 +112,59 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     return json({ ok: true, relogin: true });
   }
   if (path === "notifications" && method === "GET") {
+    const unreadOnly = url.searchParams.get("unread_only") === "true";
+    const limit = Math.min(Number(url.searchParams.get("limit") || 30), 100);
+    const unreadCountRow = await one(
+      c.db,
+      "SELECT COUNT(*) AS n FROM NOTIFICATIONS WHERE user_id=? AND is_read=0",
+      [c.user.user_id],
+    );
+    const unreadCount = Number(unreadCountRow?.n || 0);
+
+    let sql = "SELECT * FROM NOTIFICATIONS WHERE user_id=?";
+    const params: any[] = [c.user.user_id];
+    if (unreadOnly) {
+      sql += " AND is_read=0";
+    }
+    sql += " ORDER BY created_at DESC, notification_id DESC LIMIT ?";
+    params.push(limit);
+
+    const rows = await all(c.db, sql, params);
     return json({
-      rows: await all(
-        c.db,
-        "SELECT a.audit_id,a.action_code,a.created_at,e.event_id,e.event_name FROM AUDIT_LOGS a JOIN EVENTS e ON CAST(e.event_id AS varchar(80))=a.entity_id JOIN EVENT_REGISTRATIONS r ON r.event_id=e.event_id JOIN CLUB_MEMBERS m ON m.club_member_id=r.club_member_id WHERE a.entity_name='EVENTS' AND a.action_code IN ('UPDATE_EVENT','CANCEL_EVENT','CLOSE_EVENT','START_EVENT') AND a.club_id=? AND m.user_id=? AND a.created_at>=r.registered_at ORDER BY a.created_at DESC,a.audit_id DESC LIMIT 10",
-        [c.club, c.user.user_id],
-      ),
+      rows: rows.map((r) => ({
+        ...r,
+        is_read: Number(r.is_read) === 1,
+      })),
+      total: rows.length,
+      unread_count: unreadCount,
     });
+  }
+  if (path === "notifications/read-all" && method === "PATCH") {
+    await stmt(
+      c.db,
+      "UPDATE NOTIFICATIONS SET is_read=1, read_at=? WHERE user_id=? AND is_read=0",
+      [now(), c.user.user_id],
+    ).run();
+    return json({ ok: true });
+  }
+  const notifMatch = path.match(/^notifications\/(\d+)(?:\/(read))?$/);
+  if (notifMatch && method === "PATCH") {
+    const notifId = Number(notifMatch[1]);
+    await stmt(
+      c.db,
+      "UPDATE NOTIFICATIONS SET is_read=1, read_at=? WHERE notification_id=? AND user_id=?",
+      [now(), notifId, c.user.user_id],
+    ).run();
+    return json({ ok: true });
+  }
+  if (notifMatch && method === "DELETE") {
+    const notifId = Number(notifMatch[1]);
+    await stmt(
+      c.db,
+      "DELETE FROM NOTIFICATIONS WHERE notification_id=? AND user_id=?",
+      [notifId, c.user.user_id],
+    ).run();
+    return json({ ok: true });
   }
   if (path === "options" && method === "GET") {
     const result: any = {
@@ -431,7 +479,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     );
     const myRequests = await all(
       c.db,
-      "SELECT club_id, status, request_id, created_at, review_reason FROM CLUB_JOIN_REQUESTS WHERE user_id=?",
+      "SELECT club_id, status, request_id, created_at, review_reason, file_url, file_name FROM CLUB_JOIN_REQUESTS WHERE user_id=?",
       [c.user.user_id],
     );
     const enriched = clubs.map((club: any) => {
@@ -456,6 +504,8 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
               status: latestReq.status,
               request_id: latestReq.request_id,
               review_reason: latestReq.review_reason,
+              file_url: latestReq.file_url,
+              file_name: latestReq.file_name,
             }
           : null,
       };
@@ -473,11 +523,9 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       403,
     );
     const targetClubId = Number(joinMatch[1]);
-    const targetClub = await one(
-      c.db,
-      "SELECT * FROM CLUBS WHERE club_id=?",
-      [targetClubId],
-    );
+    const targetClub = await one(c.db, "SELECT * FROM CLUBS WHERE club_id=?", [
+      targetClubId,
+    ]);
     fail(
       targetClub && targetClub.club_status === "ACTIVE",
       "Câu lạc bộ không tồn tại hoặc đã ngừng hoạt động.",
@@ -508,6 +556,8 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     const b = z
       .object({
         message: z.string().trim().max(1000).optional(),
+        file_url: z.string().trim().max(500).optional(),
+        file_name: z.string().trim().max(255).optional(),
       })
       .parse(await body(req));
     const id = await insert(
@@ -517,21 +567,27 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
         club_id: targetClubId,
         user_id: c.user.user_id,
         message: b.message || null,
+        file_url: b.file_url || null,
+        file_name: b.file_name || null,
         status: "PENDING",
         created_at: now(),
       },
       "SUBMIT_JOIN_REQUEST",
     );
+    await notifyClubRoles(c.db, targetClubId, ["LEADER", "OFFICER"], {
+      title: "Đơn xin gia nhập mới",
+      content: `${c.user.full_name} đã nộp đơn đăng ký tham gia câu lạc bộ ${targetClub.club_name}.`,
+      type: "JOIN_REQUEST",
+      linkUrl: "join-requests",
+    });
     return json({ ok: true, request_id: id }, 201);
   }
   const leaveMatch = path.match(/^clubs\/(\d+)\/leave$/);
   if (leaveMatch && method === "POST") {
     const targetClubId = Number(leaveMatch[1]);
-    const targetClub = await one(
-      c.db,
-      "SELECT * FROM CLUBS WHERE club_id=?",
-      [targetClubId],
-    );
+    const targetClub = await one(c.db, "SELECT * FROM CLUBS WHERE club_id=?", [
+      targetClubId,
+    ]);
     fail(targetClub, "Câu lạc bộ không tồn tại.", 404);
 
     const member = await one(
@@ -601,6 +657,13 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
         reason: leaveReason,
       }),
     ]);
+
+    await notifyClubRoles(c.db, targetClubId, ["LEADER"], {
+      title: "Thành viên rời câu lạc bộ",
+      content: `Thành viên ${c.user.full_name} đã rời câu lạc bộ ${targetClub.club_name}. Lý do: ${leaveReason}`,
+      type: "MEMBERSHIP",
+      linkUrl: "members",
+    });
 
     return json({ ok: true, message: "Bạn đã rời câu lạc bộ thành công." });
   }
@@ -674,6 +737,14 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
         reqRow!,
         "REJECT_JOIN_REQUEST",
       );
+      await createNotification(c.db, {
+        userId: reqRow!.user_id,
+        clubId: c.club,
+        title: "Đơn gia nhập không được phê duyệt",
+        content: `Đơn gia nhập CLB của bạn đã bị từ chối. Lý do: ${b.reason}`,
+        type: "JOIN_REQUEST",
+        linkUrl: "my-join-requests",
+      });
       return json({ ok: true });
     }
     const targetUserId = reqRow!.user_id;
@@ -732,12 +803,27 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       ),
       grantRoleStmt,
       memberStmt,
-      audit(c, "APPROVE_JOIN_REQUEST", "CLUB_JOIN_REQUESTS", requestId, reqRow!, {
-        status: "APPROVED",
-        user_id: targetUserId,
-        department_name: dept,
-      }),
+      audit(
+        c,
+        "APPROVE_JOIN_REQUEST",
+        "CLUB_JOIN_REQUESTS",
+        requestId,
+        reqRow!,
+        {
+          status: "APPROVED",
+          user_id: targetUserId,
+          department_name: dept,
+        },
+      ),
     ]);
+    await createNotification(c.db, {
+      userId: targetUserId,
+      clubId: c.club,
+      title: "Đơn gia nhập đã được phê duyệt!",
+      content: `Chúc mừng bạn! Ban chủ nhiệm đã phê duyệt đơn gia nhập CLB của bạn vào phòng ban "${dept}".`,
+      type: "JOIN_REQUEST",
+      linkUrl: "members",
+    });
     return json({ ok: true });
   }
   if (path === "clubs" && method === "POST") {
