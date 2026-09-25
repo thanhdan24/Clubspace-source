@@ -107,7 +107,7 @@ const navigation = [
     id: "registrations",
     label: "Đăng ký của tôi",
     icon: BookOpen,
-    roles: ["MEMBER"],
+    roles: [],
   },
 ];
 const management = [

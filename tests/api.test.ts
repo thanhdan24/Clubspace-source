@@ -984,6 +984,69 @@ test("Event scope restricts registration: INTERNAL allows only club members, PUB
   assert.equal(regInternalAgain.status, 403);
   assert.match(regInternalAgain.data.error, /nội bộ/);
 });
+test("Club Leader of Club 1 can view, register for, and cancel public event of Club 2", async () => {
+  // Ensure event 4 in Club 2 is an open public event with future deadline
+  sqlite
+    .prepare(
+      "UPDATE EVENTS SET start_at=?, end_at=?, registration_deadline=?, scope='PUBLIC', event_status='OPEN', approval_required=0, capacity=50 WHERE event_id=4",
+    )
+    .run(future(16), future(16, "18:00"), future(15));
+
+  // 1. Leader of Club 1 views Event 4 details (sent with club=1 context)
+  const viewRes = await call("LEADER", "events/4", "GET", undefined, 1);
+  assert.equal(viewRes.status, 200);
+  assert.equal(viewRes.data.event.event_name, "English Speaking Day");
+  assert.equal(viewRes.data.mine, null);
+
+  // 2. Leader of Club 1 registers for Event 4 of Club 2
+  const regRes = await call(
+    "LEADER",
+    "events/4/registration",
+    "POST",
+    { action: "register" },
+    1,
+  );
+  assert.equal(regRes.status, 201);
+  assert.equal(regRes.data.registration_status, "CONFIRMED");
+
+  // Verify Leader is added as a guest member in Club 2
+  const leaderUser = sql("SELECT user_id FROM USERS WHERE username='demo_leader'");
+  const guestMember = sql(
+    "SELECT * FROM CLUB_MEMBERS WHERE club_id=2 AND user_id=?",
+    leaderUser.user_id,
+  );
+  assert.ok(guestMember);
+  assert.equal(guestMember.department_name, "Khách tham gia");
+  assert.equal(guestMember.position_name, "Người tham dự");
+
+  // 3. Leader checks event 4 detail again - mine should now be populated
+  const viewRes2 = await call("LEADER", "events/4", "GET", undefined, 1);
+  assert.equal(viewRes2.status, 200);
+  assert.ok(viewRes2.data.mine);
+  assert.equal(viewRes2.data.mine.registration_status, "CONFIRMED");
+
+  // 4. Leader can see Event 4 in my-registrations
+  const myRegs = await call("LEADER", "my-registrations", "GET", undefined, 1);
+  assert.equal(myRegs.status, 200);
+  const found = myRegs.data.rows.find((r: any) => r.event_id === 4);
+  assert.ok(found, "Leader should see Event 4 in their registrations");
+  assert.equal(found.registration_status, "CONFIRMED");
+
+  // 5. Leader cancels registration
+  const cancelRes = await call(
+    "LEADER",
+    "events/4/registration",
+    "POST",
+    { action: "cancel" },
+    1,
+  );
+  assert.equal(cancelRes.status, 200);
+  const cancelledReg = sql(
+    "SELECT registration_status FROM EVENT_REGISTRATIONS WHERE event_id=4 AND club_member_id=?",
+    guestMember.club_member_id,
+  );
+  assert.equal(cancelledReg.registration_status, "CANCELLED");
+});
 test("Club join application and review workflow: submit, duplicate prevention, review permissions, approval, and rejection", async () => {
   // Create a new applicant account
   const applicant = {
@@ -1333,6 +1396,33 @@ test("Route verification: all 16 application routes work correctly with appropri
   assert.ok(
     Array.isArray(rEvents.data.rows || rEvents.data.events || rEvents.data),
   );
+  assert.ok(rEvents.data.counts !== undefined);
+  assert.equal(typeof rEvents.data.counts.active, "number");
+  assert.equal(typeof rEvents.data.counts.cancelled, "number");
+
+  const rActive = await call(
+    "MEMBER",
+    "events?group=active",
+    "GET",
+    undefined,
+    1,
+  );
+  assert.equal(rActive.status, 200);
+  for (const ev of rActive.data.rows) {
+    assert.notEqual(ev.event_status, "CANCELLED");
+  }
+
+  const rCancelled = await call(
+    "MEMBER",
+    "events?group=cancelled",
+    "GET",
+    undefined,
+    1,
+  );
+  assert.equal(rCancelled.status, 200);
+  for (const ev of rCancelled.data.rows) {
+    assert.equal(ev.event_status, "CANCELLED");
+  }
 
   // Route 5: Event detail (events/:id and registrations)
   const rEventDetail = await call("MEMBER", "events/1", "GET", undefined, 1);

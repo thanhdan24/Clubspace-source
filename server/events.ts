@@ -101,24 +101,49 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     const { q, status } = paging(url);
     const scope = url.searchParams.get("scope");
     const type = url.searchParams.get("type");
+    const group = url.searchParams.get("group");
 
-    let sql =
-      "SELECT e.*, c_info.club_name, s.confirmed_count, s.pending_count, s.attended_count, s.attendance_rate_percent FROM EVENTS e JOIN CLUBS c_info ON c_info.club_id=e.club_id JOIN vw_event_statistics s ON s.event_id=e.event_id WHERE ";
-    const p: any[] = [];
+    let baseWhere = "";
+    const pBase: any[] = [];
     if (c.club > 0) {
       if (isStaff(c)) {
-        sql +=
+        baseWhere =
           "(e.club_id=? OR (e.scope='PUBLIC' AND e.event_status<>'DRAFT'))";
       } else {
-        sql +=
+        baseWhere =
           "((e.club_id=? AND e.event_status<>'DRAFT') OR (e.scope='PUBLIC' AND e.event_status<>'DRAFT'))";
       }
-      p.push(c.club);
+      pBase.push(c.club);
     } else {
-      sql += "(e.scope='PUBLIC' AND e.event_status<>'DRAFT')";
+      baseWhere = "(e.scope='PUBLIC' AND e.event_status<>'DRAFT')";
     }
+
+    const countsRow = await one(
+      c.db,
+      `SELECT 
+        SUM(CASE WHEN e.event_status IN ('OPEN', 'ONGOING', 'CLOSED', 'DRAFT') THEN 1 ELSE 0 END) AS active_count,
+        SUM(CASE WHEN e.event_status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed_count,
+        SUM(CASE WHEN e.event_status = 'CANCELLED' THEN 1 ELSE 0 END) AS cancelled_count,
+        COUNT(*) AS all_count
+      FROM EVENTS e WHERE ${baseWhere}`,
+      pBase,
+    );
+
+    let sql =
+      "SELECT e.*, c_info.club_name, s.confirmed_count, s.pending_count, s.attended_count, s.attendance_rate_percent FROM EVENTS e JOIN CLUBS c_info ON c_info.club_id=e.club_id JOIN vw_event_statistics s ON s.event_id=e.event_id WHERE " +
+      baseWhere;
+    const p: any[] = [...pBase];
     sql += " AND e.event_name LIKE ?";
     p.push("%" + q + "%");
+
+    if (group === "active") {
+      sql += " AND e.event_status IN ('OPEN', 'ONGOING', 'CLOSED', 'DRAFT')";
+    } else if (group === "completed") {
+      sql += " AND e.event_status = 'COMPLETED'";
+    } else if (group === "cancelled") {
+      sql += " AND e.event_status = 'CANCELLED'";
+    }
+
     if (status) {
       sql += " AND e.event_status=?";
       p.push(status);
@@ -131,7 +156,16 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
       sql += " AND e.scope=?";
       p.push(scope);
     }
-    return json(await list(c, sql, p, "e.start_at DESC", url));
+    const result = await list(c, sql, p, "e.start_at DESC", url);
+    return json({
+      ...result,
+      counts: {
+        active: Number(countsRow?.active_count || 0),
+        completed: Number(countsRow?.completed_count || 0),
+        cancelled: Number(countsRow?.cancelled_count || 0),
+        all: Number(countsRow?.all_count || 0),
+      },
+    });
   }
   if (path === "events" && method === "POST") {
     permit(c, "OFFICER", "LEADER");
@@ -370,7 +404,7 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     return json({ ok: true });
   }
   if (sub === "registration" && method === "POST") {
-    permit(c, "MEMBER");
+    permit(c, "MEMBER", "LEADER", "OFFICER", "TREASURER");
     fail(
       c.user.account_status === "ACTIVE",
       "Tài khoản của bạn không trong trạng thái hoạt động.",

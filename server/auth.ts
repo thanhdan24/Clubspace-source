@@ -369,6 +369,6 @@ export async function context(
     .filter((r) => Number(r.club_id) === club)
     .map((r) => r.role_code);
   if (admin) roles.push("ADMIN");
-  if (!roles.length && isPublicEventAccess) roles.push("MEMBER");
+  if (isPublicEventAccess && !roles.includes("MEMBER")) roles.push("MEMBER");
   return { db, user: user!, club, roles, admin, env, request: req };
 }

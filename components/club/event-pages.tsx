@@ -18,6 +18,11 @@ import {
   UserPlus,
   Save,
   AlertCircle,
+  Sparkles,
+  CheckCircle2,
+  XCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -173,20 +178,172 @@ function EventEditor({ event = {}, onClose, onSaved }: any) {
     />
   );
 }
+function EventPagination({
+  page,
+  setPage,
+  total,
+  pageSize,
+  setPageSize,
+}: {
+  page: number;
+  setPage: (p: number) => void;
+  total: number;
+  pageSize: number;
+  setPageSize?: (s: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (total <= pageSize && totalPages <= 1) {
+    if (total === 0) return null;
+    return (
+      <div className="event-pagination-summary">
+        <span>
+          Hiển thị tất cả <strong>{total}</strong> sự kiện
+        </span>
+      </div>
+    );
+  }
+
+  const startItem = (page - 1) * pageSize + 1;
+  const endItem = Math.min(page * pageSize, total);
+
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (page > 3) pages.push("...");
+      const start = Math.max(2, page - 1);
+      const end = Math.min(totalPages - 1, page + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (page < totalPages - 2) pages.push("...");
+      pages.push(totalPages);
+    }
+    return pages;
+  };
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > totalPages || newPage === page) return;
+    setPage(newPage);
+    const elem =
+      document.querySelector(".event-filters") ||
+      document.querySelector(".event-status-tabs");
+    if (elem) {
+      elem.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
+  return (
+    <div className="event-pagination-container">
+      <div className="pagination-info">
+        Hiển thị <strong>{startItem} – {endItem}</strong> trên{" "}
+        <strong>{total}</strong> sự kiện
+      </div>
+
+      <div className="pagination-controls">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page <= 1}
+          onClick={() => handlePageChange(page - 1)}
+          className="pagination-nav-btn"
+        >
+          <ChevronLeft size={16} />
+          <span>Trước</span>
+        </Button>
+
+        <div className="pagination-pages">
+          {getPageNumbers().map((p, idx) =>
+            p === "..." ? (
+              <span key={`dots-${idx}`} className="pagination-ellipsis">
+                …
+              </span>
+            ) : (
+              <button
+                key={`page-${p}`}
+                type="button"
+                className={`pagination-num-btn ${page === p ? "active" : ""}`}
+                onClick={() => handlePageChange(Number(p))}
+              >
+                {p}
+              </button>
+            ),
+          )}
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page >= totalPages}
+          onClick={() => handlePageChange(page + 1)}
+          className="pagination-nav-btn"
+        >
+          <span>Sau</span>
+          <ChevronRight size={16} />
+        </Button>
+      </div>
+
+      {setPageSize && (
+        <div className="pagination-size-select">
+          <span className="text-xs text-slate-500">Mỗi trang:</span>
+          {[6, 9, 12].map((s) => (
+            <button
+              key={s}
+              type="button"
+              className={`size-btn ${pageSize === s ? "active" : ""}`}
+              onClick={() => {
+                setPageSize(s);
+                setPage(1);
+              }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Events() {
   const { can, navigate } = useApp(),
     f = useFilters(),
+    [tab, setTab] = useState("active"),
     [type, setType] = useState(""),
     [scope, setScope] = useState(""),
     [view, setView] = useState("grid"),
-    [editing, setEditing] = useState(false),
-    r = useResource(
-      "events?" + f.query + "&type=" + type + (scope ? "&scope=" + scope : ""),
-    );
+    [pageSize, setPageSize] = useState(6),
+    [editing, setEditing] = useState(false);
+
+  const query =
+    f.query +
+    "&type=" +
+    type +
+    (scope ? "&scope=" + scope : "") +
+    (tab !== "all" ? "&group=" + tab : "") +
+    "&size=" +
+    (view === "grid" ? pageSize : 10);
+
+  const r = useResource("events?" + query);
+
+  const handleTabChange = (newTab: string) => {
+    setTab(newTab);
+    f.setStatus("");
+    f.setPage(1);
+  };
+
   useEffect(() => {
     if (window.location.hash.includes("?new") && can("OFFICER", "LEADER"))
       setEditing(true);
   }, []);
+
+  const counts = r.data?.counts || {
+    active: 0,
+    completed: 0,
+    cancelled: 0,
+    all: 0,
+  };
+
   return (
     <>
       <PageTitle
@@ -201,13 +358,70 @@ export function Events() {
           </Button>
         )}
       </PageTitle>
+
+      <div className="event-status-tabs">
+        <button
+          type="button"
+          className={`event-status-tab tab-active ${tab === "active" ? "active" : ""}`}
+          onClick={() => handleTabChange("active")}
+        >
+          <Sparkles size={16} />
+          <span>Đang hoạt động</span>
+          <span className="event-tab-badge active">{counts.active}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`event-status-tab tab-completed ${tab === "completed" ? "active" : ""}`}
+          onClick={() => handleTabChange("completed")}
+        >
+          <CheckCircle2 size={16} />
+          <span>Đã hoàn thành</span>
+          <span className="event-tab-badge completed">{counts.completed}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`event-status-tab tab-cancelled ${tab === "cancelled" ? "active" : ""}`}
+          onClick={() => handleTabChange("cancelled")}
+        >
+          <XCircle size={16} />
+          <span>Đã bị hủy</span>
+          <span className="event-tab-badge cancelled">{counts.cancelled}</span>
+        </button>
+
+        <button
+          type="button"
+          className={`event-status-tab tab-all ${tab === "all" ? "active" : ""}`}
+          onClick={() => handleTabChange("all")}
+        >
+          <CalendarDays size={16} />
+          <span>Tất cả sự kiện</span>
+          <span className="event-tab-badge all">{counts.all}</span>
+        </button>
+      </div>
+
       <section className="panel event-filters">
         <Filters
           {...f}
-          statuses={statuses.filter(
-            (s) =>
-              s !== "DRAFT" || can("ADMIN", "LEADER", "OFFICER", "TREASURER"),
-          )}
+          statuses={
+            tab === "active"
+              ? [
+                  "OPEN",
+                  "ONGOING",
+                  "CLOSED",
+                  ...(can("ADMIN", "LEADER", "OFFICER", "TREASURER")
+                    ? ["DRAFT"]
+                    : []),
+                ]
+              : tab === "all"
+              ? statuses.filter(
+                  (s) =>
+                    s !== "DRAFT" ||
+                    can("ADMIN", "LEADER", "OFFICER", "TREASURER"),
+                )
+              : []
+          }
         >
           <SelectBox
             label="Phạm vi"
@@ -240,7 +454,13 @@ export function Events() {
               ]),
             ]}
           />
-          <Tabs value={view} onValueChange={setView}>
+          <Tabs
+            value={view}
+            onValueChange={(v) => {
+              setView(v);
+              f.setPage(1);
+            }}
+          >
             <TabsList>
               <TabsTrigger value="grid" aria-label="Dạng thẻ">
                 <Grid2X2 size={17} />
@@ -312,117 +532,139 @@ export function Events() {
           </section>
         ) : (
           <>
-            {!r.data?.rows.length ? (
+            {!r.data?.rows?.length ? (
               <section className="panel">
                 <EmptyState
-                  title="Chưa có sự kiện phù hợp"
-                  description="Thay đổi bộ lọc hoặc tạo một hoạt động mới cho câu lạc bộ."
+                  title={
+                    tab === "cancelled"
+                      ? "Không có sự kiện nào bị hủy"
+                      : tab === "completed"
+                      ? "Chưa có sự kiện nào hoàn thành"
+                      : tab === "active"
+                      ? "Chưa có sự kiện nào đang hoạt động"
+                      : "Chưa có sự kiện phù hợp"
+                  }
+                  description={
+                    tab === "cancelled"
+                      ? "Tất cả các sự kiện của câu lạc bộ đều diễn ra thuận lợi theo đúng kế hoạch."
+                      : tab === "completed"
+                      ? "Các sự kiện sau khi hoàn tất điểm danh sẽ được lưu trữ tại đây."
+                      : tab === "active"
+                      ? "Hãy tạo một hoạt động mới hoặc thay đổi bộ lọc để xem các sự kiện."
+                      : "Thay đổi bộ lọc hoặc tạo một hoạt động mới cho câu lạc bộ."
+                  }
                 />
               </section>
             ) : (
               <div className="events-grid">
-                {r.data.rows.map((e: Row, i: number) => (
-                  <article className="event-card" key={e.event_id}>
-                    <div className={"event-cover cover-" + (i % 4)}>
-                      <span className="cover-kicker">
-                        {labels[e.event_type] || e.event_type}
-                      </span>
-                      <div>
-                        <span className="cover-day">
-                          {String(e.start_at).slice(8, 10)}
-                        </span>
-                        <span className="cover-month">
-                          THÁNG {Number(String(e.start_at).slice(5, 7))}
-                          <br />
-                          {String(e.start_at).slice(0, 4)}
-                        </span>
-                      </div>
-                      <span className="cover-code">
-                        CLUBSPACE / {String(e.event_id).padStart(3, "0")}
-                      </span>
-                      <CalendarDays
-                        className="cover-icon"
-                        size={64}
-                        strokeWidth={1}
-                      />
-                    </div>
-                    <div className="event-card-content">
-                      <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                        <Badge value={e.event_status} />
-                        <Badge value={e.scope || "PUBLIC"} />
-                        {e.club_name && (
-                          <span className="text-xs text-slate-500 font-medium truncate max-w-[180px]">
-                            · {e.club_name}
-                          </span>
+                {r.data.rows.map((e: Row, i: number) => {
+                  const isCancelled = e.event_status === "CANCELLED";
+                  return (
+                    <article
+                      className={`event-card ${isCancelled ? "is-cancelled" : ""}`}
+                      key={e.event_id}
+                    >
+                      <div className={"event-cover cover-" + (i % 4)}>
+                        {isCancelled && (
+                          <div className="cancelled-card-ribbon">
+                            <XCircle size={13} /> ĐÃ HỦY
+                          </div>
                         )}
-                      </div>
-                      <h2>
-                        <a href={"#events/" + e.event_id}>{e.event_name}</a>
-                      </h2>
-                      <p>
-                        <MapPin size={15} />
-                        {e.location}
-                      </p>
-                      <p>
-                        <Clock size={15} />
-                        {dateText(e.start_at, true)}
-                      </p>
-                      <div className="capacity-label">
-                        <span>{num(e.confirmed_count)} người xác nhận</span>
-                        <span>
-                          {e.capacity ? e.capacity + " chỗ" : "Không giới hạn"}
+                        <span className="cover-kicker">
+                          {labels[e.event_type] || e.event_type}
                         </span>
+                        <div>
+                          <span className="cover-day">
+                            {String(e.start_at).slice(8, 10)}
+                          </span>
+                          <span className="cover-month">
+                            THÁNG {Number(String(e.start_at).slice(5, 7))}
+                            <br />
+                            {String(e.start_at).slice(0, 4)}
+                          </span>
+                        </div>
+                        <span className="cover-code">
+                          CLUBSPACE / {String(e.event_id).padStart(3, "0")}
+                        </span>
+                        <CalendarDays
+                          className="cover-icon"
+                          size={64}
+                          strokeWidth={1}
+                        />
                       </div>
-                      <Progress
-                        value={
-                          e.capacity
-                            ? (Number(e.confirmed_count) / Number(e.capacity)) *
-                              100
-                            : 0
-                        }
-                      />
-                      <div className="event-card-footer">
-                        <small>
-                          {e.event_status === "OPEN" &&
-                          e.registration_deadline < localNow()
-                            ? "Đã hết hạn đăng ký"
-                            : e.approval_required
+                      <div className="event-card-content">
+                        {isCancelled && (
+                          <div className="cancelled-strip">
+                            <XCircle size={14} /> Hoạt động này đã bị hủy bỏ
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                          <Badge value={e.event_status} />
+                          <Badge value={e.scope || "PUBLIC"} />
+                          {e.club_name && (
+                            <span className="text-xs text-slate-500 font-medium truncate max-w-[180px]">
+                              · {e.club_name}
+                            </span>
+                          )}
+                        </div>
+                        <h2>
+                          <a href={"#events/" + e.event_id}>{e.event_name}</a>
+                        </h2>
+                        <p>
+                          <MapPin size={15} />
+                          {e.location}
+                        </p>
+                        <p>
+                          <Clock size={15} />
+                          {dateText(e.start_at, true)}
+                        </p>
+                        <div className="capacity-label">
+                          <span>{num(e.confirmed_count)} người xác nhận</span>
+                          <span>
+                            {e.capacity ? e.capacity + " chỗ" : "Không giới hạn"}
+                          </span>
+                        </div>
+                        <Progress
+                          value={
+                            e.capacity
+                              ? (Number(e.confirmed_count) / Number(e.capacity)) *
+                                100
+                              : 0
+                          }
+                        />
+                        <div className="event-card-footer">
+                          <small>
+                            {isCancelled
+                              ? "Hoạt động đã dừng tổ chức"
+                              : e.event_status === "OPEN" &&
+                                e.registration_deadline < localNow()
+                              ? "Đã hết hạn đăng ký"
+                              : e.approval_required
                               ? "Cần duyệt đăng ký"
                               : "Tự động xác nhận"}
-                        </small>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => navigate("events/" + e.event_id)}
-                        >
-                          Chi tiết <ArrowUpRight size={15} />
-                        </Button>
+                          </small>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => navigate("events/" + e.event_id)}
+                          >
+                            Chi tiết <ArrowUpRight size={15} />
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  );
+                })}
               </div>
-            )}{" "}
-            {r.data?.total > 10 && (
-              <div className="standalone-pagination">
-                <Button
-                  variant="outline"
-                  disabled={f.page === 1}
-                  onClick={() => f.setPage(f.page - 1)}
-                >
-                  Trang trước
-                </Button>
-                <span>
-                  Trang {f.page} / {Math.ceil(r.data.total / 10)}
-                </span>
-                <Button
-                  variant="outline"
-                  disabled={f.page * 10 >= r.data.total}
-                  onClick={() => f.setPage(f.page + 1)}
-                >
-                  Trang sau
-                </Button>
-              </div>
+            )}
+            {r.data?.rows?.length > 0 && (
+              <EventPagination
+                page={f.page}
+                setPage={f.setPage}
+                total={r.data?.total || 0}
+                pageSize={pageSize}
+                setPageSize={setPageSize}
+              />
             )}
           </>
         )}
@@ -838,7 +1080,7 @@ export function EventDetail({ id }: any) {
                         e.capacity ? (s.confirmed_count / e.capacity) * 100 : 0
                       }
                     />
-                    {can("MEMBER") && (
+                    {!can("ADMIN") && (
                       <div className="registration-button">
                         {mine &&
                         ["PENDING", "CONFIRMED"].includes(
