@@ -111,6 +111,12 @@ const navigation = [
   },
 ];
 const management = [
+  {
+    id: "join-requests",
+    label: "Yêu cầu tham gia",
+    icon: Users,
+    roles: ["LEADER", "OFFICER"],
+  },
   { id: "accounts", label: "Tài khoản", icon: UserRound, roles: ["ADMIN"] },
   { id: "clubs", label: "Câu lạc bộ", icon: Building2, roles: ["ADMIN"] },
   {
@@ -1084,6 +1090,7 @@ export default function ClubApp() {
                   </SidebarGroup>
                 )}
               </>
+
             )}
           </SidebarContent>
           <SidebarFooter>
@@ -1103,7 +1110,9 @@ export default function ClubApp() {
                 >
                   {can("ADMIN")
                     ? "Quản trị viên toàn trường"
-                    : labels[roleList.find((r) => r !== "MEMBER") || "MEMBER"]}
+                    : roleList.length
+                      ? labels[roleList.find((r) => r !== "MEMBER") || "MEMBER"]
+                      : "Chưa tham gia CLB"}
                 </small>
               </span>
               <ArrowRight size={17} />
@@ -1120,7 +1129,7 @@ export default function ClubApp() {
               </span>
             </div>
             <div className="topbar-right">
-              <Notifications />
+              {club > 0 && <Notifications />}
               {session.demo && (
                 <span className="preview-badge">Bản trải nghiệm</span>
               )}

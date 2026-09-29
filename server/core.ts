@@ -173,6 +173,7 @@ export async function change(
     (
       {
         EVENTS: ["event_status", "attendance_locked"],
+        CLUB_JOIN_REQUESTS: ["status"],
         EVENT_REGISTRATIONS: ["registration_status"],
         FINANCIAL_TRANSACTIONS: ["transaction_status"],
         CLUB_MEMBERS: ["member_status"],
