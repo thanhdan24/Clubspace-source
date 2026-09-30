@@ -2,15 +2,28 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
-import sql from "mssql";
-import { SqlServerDatabase, connectionConfig } from "./sqlserver";
 import { handleApi } from "./api";
+import { prisma, PrismaDatabase } from "./prisma";
+import { Prisma } from "@prisma/client";
+
 const port = Number(process.env.PORT || 3001),
   host = process.env.HOST || "127.0.0.1";
-const pool = await new sql.ConnectionPool(connectionConfig()).connect();
-await pool.request().query("SELECT 1 AS ok");
+
+try {
+  await prisma.$connect();
+  await prisma.$queryRawUnsafe("SELECT 1 AS ok");
+  console.log(
+    "[Supabase/Prisma] Đã kết nối thành công tới Supabase (PostgreSQL).",
+  );
+} catch (err: any) {
+  console.error("[Supabase/Prisma] Lỗi kết nối database:", err.message);
+  console.error("Vui lòng kiểm tra lại cấu hình DATABASE_URL trong tệp .env.");
+  throw err;
+}
+
 const uploadRoot = path.resolve(process.env.UPLOAD_DIR || "private-uploads");
 await fs.mkdir(uploadRoot, { recursive: true });
+
 const bucket = {
   async put(key: string, bytes: Uint8Array, metadata: any) {
     const p = path.join(uploadRoot, key);
@@ -30,7 +43,8 @@ const bucket = {
     }
   },
 };
-const mime: any = {
+
+const mime: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript",
   ".css": "text/css",
@@ -39,6 +53,13 @@ const mime: any = {
   ".woff2": "font/woff2",
   ".ico": "image/x-icon",
 };
+
+class RollbackError extends Error {
+  constructor(public response: Response) {
+    super("Rollback");
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     if ((req.url || "").startsWith("/api/")) {
@@ -58,6 +79,7 @@ const server = http.createServer(async (req, res) => {
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers))
         if (v) headers.set(k, Array.isArray(v) ? v.join("; ") : v);
+
       const request = new Request(url, {
         method: req.method,
         headers,
@@ -65,27 +87,40 @@ const server = http.createServer(async (req, res) => {
           ? undefined
           : Buffer.concat(chunks),
       });
-      const tx = new sql.Transaction(pool);
-      await tx.begin(sql.ISOLATION_LEVEL.SERIALIZABLE);
+
       let response: Response;
       try {
-        response = await handleApi(request, new SqlServerDatabase(pool, tx), {
-          ...process.env,
-          DEMO_MODE: "false",
-          BUCKET: bucket,
-        });
-        if (response.status >= 400 && !url.includes("/auth/login"))
-          await tx.rollback();
-        else await tx.commit();
-      } catch (e) {
-        await tx.rollback().catch(() => {});
-        throw e;
+        response = await prisma.$transaction(
+          async (tx) => {
+            const db = new PrismaDatabase(tx);
+            const result = await handleApi(request, db, {
+              ...process.env,
+              DEMO_MODE: "false",
+              BUCKET: bucket,
+            });
+            if (result.status >= 400 && !url.includes("/auth/login")) {
+              throw new RollbackError(result);
+            }
+            return result;
+          },
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+      } catch (e: any) {
+        if (e instanceof RollbackError) {
+          response = e.response;
+        } else {
+          throw e;
+        }
       }
+
       res.writeHead(response.status, Object.fromEntries(response.headers));
       if (response.body) Readable.fromWeb(response.body as any).pipe(res);
       else res.end();
       return;
     }
+
     const root = path.resolve("web-dist");
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
     let file = path.resolve(root, "." + decodeURIComponent(url.pathname));
@@ -109,7 +144,7 @@ const server = http.createServer(async (req, res) => {
       res.end(data);
     } catch {
       res.writeHead(404);
-      res.end("Không tìm thấy trang. Chạy pnpm build:standalone trước.");
+      res.end("Không tìm thấy trang. Chạy pnpm build trước.");
     }
   } catch (e: any) {
     console.error("[node-api]", e.message);
@@ -124,13 +159,17 @@ const server = http.createServer(async (req, res) => {
     } else res.end();
   }
 });
+
 server.listen(port, host, () =>
-  console.log(`Clubspace SQL Server đang chạy trên ${host}:${port}`),
+  console.log(
+    `Clubspace server đang chạy trên ${host}:${port} (Supabase PostgreSQL / Prisma)`,
+  ),
 );
+
 for (const event of ["SIGINT", "SIGTERM"])
-  process.on(event, () =>
-    server.close(() => {
-      pool.close();
+  process.on(event, async () => {
+    server.close(async () => {
+      await prisma.$disconnect();
       process.exit(0);
-    }),
-  );
+    });
+  });

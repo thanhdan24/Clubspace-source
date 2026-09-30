@@ -1,5 +1,5 @@
 // Explicit preview-only seed; never runs against a non-empty business database.
-import original from "../database/imported-data.json";
+import original from "../prisma/seed-data.json";
 import bcrypt from "bcryptjs";
 import { one, stmt, now, type Database } from "./core";
 export async function seedPreview(db: Database, env: any) {

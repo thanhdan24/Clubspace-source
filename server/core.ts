@@ -28,9 +28,13 @@ export class ApiError extends Error {
     super(message);
   }
 }
-export const fail = (condition: any, message: string, status = 400) => {
+export function fail(
+  condition: unknown,
+  message: string,
+  status = 400,
+): asserts condition {
   if (!condition) throw new ApiError(status, message);
-};
+}
 export const now = () =>
   new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 19);
 export const day = () => now().slice(0, 10);
@@ -42,7 +46,7 @@ export function stmt(db: Database, s: string, p: any[] = []) {
   return prepared;
 }
 function ifChanged(db: Database, s: Statement) {
-  if (db.dialect === "sqlserver") return s;
+  if (db.dialect === "postgres") return s;
   const source = statementSource.get(s)!;
   let sql = source.sql;
   if (/^INSERT/i.test(sql))
@@ -169,7 +173,7 @@ export async function change(
     (
       {
         EVENTS: ["event_status", "attendance_locked"],
-        CLUB_JOIN_REQUESTS: ["request_status"],
+        CLUB_JOIN_REQUESTS: ["status"],
         EVENT_REGISTRATIONS: ["registration_status"],
         FINANCIAL_TRANSACTIONS: ["transaction_status"],
         CLUB_MEMBERS: ["member_status"],
@@ -311,4 +315,107 @@ export function csv(
       },
     },
   );
+}
+
+export async function createNotification(
+  db: Database,
+  params: {
+    userId: number;
+    clubId?: number | null;
+    title: string;
+    content: string;
+    type?: string;
+    linkUrl?: string | null;
+  },
+) {
+  await stmt(
+    db,
+    "INSERT INTO NOTIFICATIONS (user_id, club_id, title, content, type, link_url, is_read, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+    [
+      params.userId,
+      params.clubId ?? null,
+      params.title,
+      params.content,
+      params.type || "INFO",
+      params.linkUrl ?? null,
+      now(),
+    ],
+  ).run();
+}
+
+export async function notifyClubRoles(
+  db: Database,
+  clubId: number,
+  roleCodes: string[],
+  notification: {
+    title: string;
+    content: string;
+    type?: string;
+    linkUrl?: string | null;
+  },
+) {
+  if (!roleCodes.length) return;
+  const placeholders = roleCodes.map(() => "?").join(",");
+  const users = await all(
+    db,
+    `SELECT DISTINCT u.user_id FROM USER_ROLES ur JOIN ROLES r ON r.role_id=ur.role_id JOIN USERS u ON u.user_id=ur.user_id WHERE ur.club_id=? AND ur.active_flag=1 AND u.account_status='ACTIVE' AND r.role_code IN (${placeholders})`,
+    [clubId, ...roleCodes],
+  );
+  for (const user of users) {
+    await createNotification(db, {
+      userId: user.user_id,
+      clubId,
+      ...notification,
+    });
+  }
+}
+
+export async function notifyClubMembers(
+  db: Database,
+  clubId: number,
+  notification: {
+    title: string;
+    content: string;
+    type?: string;
+    linkUrl?: string | null;
+  },
+  excludeUserId?: number,
+) {
+  const members = await all(
+    db,
+    `SELECT DISTINCT u.user_id FROM CLUB_MEMBERS cm JOIN USERS u ON u.user_id=cm.user_id WHERE cm.club_id=? AND cm.member_status='ACTIVE' ${excludeUserId ? "AND u.user_id <> ?" : ""}`,
+    excludeUserId ? [clubId, excludeUserId] : [clubId],
+  );
+  for (const m of members) {
+    await createNotification(db, {
+      userId: m.user_id,
+      clubId,
+      ...notification,
+    });
+  }
+}
+
+export async function notifyConfirmedAttendees(
+  db: Database,
+  eventId: number,
+  clubId: number,
+  notification: {
+    title: string;
+    content: string;
+    type?: string;
+    linkUrl?: string | null;
+  },
+) {
+  const attendees = await all(
+    db,
+    `SELECT DISTINCT u.user_id FROM EVENT_REGISTRATIONS er JOIN CLUB_MEMBERS cm ON cm.club_member_id=er.club_member_id JOIN USERS u ON u.user_id=cm.user_id WHERE er.event_id=? AND er.registration_status='CONFIRMED'`,
+    [eventId],
+  );
+  for (const a of attendees) {
+    await createNotification(db, {
+      userId: a.user_id,
+      clubId,
+      ...notification,
+    });
+  }
 }

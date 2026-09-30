@@ -4,6 +4,7 @@ import {
   one,
   stmt,
   now,
+  day,
   fail,
   permit,
   has,
@@ -21,11 +22,17 @@ import {
   paging,
   member,
   csv,
+  execute,
+  createNotification,
+  notifyClubRoles,
+  notifyClubMembers,
+  notifyConfirmedAttendees,
   type Context,
 } from "./core";
 const eventForm = z.object({
   event_name: str(200),
   event_type: str(100),
+  scope: z.enum(["INTERNAL", "PUBLIC"]).default("PUBLIC"),
   location: str(255),
   start_at: datetime,
   end_at: datetime,
@@ -36,6 +43,12 @@ const eventForm = z.object({
   approval_required: z.coerce.number().int().min(0).max(1),
 });
 async function checkEvent(c: Context, event: any) {
+  if (!event.event_id) {
+    fail(
+      event.start_at.slice(0, 10) >= day(),
+      "Thời gian bắt đầu sự kiện phải từ ngày hôm nay trở đi.",
+    );
+  }
   fail(
     event.end_at > event.start_at,
     "Thời gian kết thúc phải sau thời gian bắt đầu.",
@@ -67,27 +80,95 @@ async function capacity(c: Context, e: any) {
   }
 }
 export async function eventsRoute(c: Context, path: string, req: Request) {
+  if (
+    path !== "events" &&
+    !path.startsWith("events/") &&
+    path !== "my-registrations"
+  ) {
+    return null;
+  }
   const method = req.method,
     url = new URL(req.url);
+
+  // Tự động chuyển các sự kiện đã công bố (OPEN hoặc CLOSED) sang ONGOING khi đến giờ bắt đầu
+  await execute(
+    c.db,
+    "UPDATE EVENTS SET event_status='ONGOING', updated_at=? WHERE event_status IN ('OPEN', 'CLOSED') AND start_at <= ?",
+    [now(), now()],
+  );
+
   if (path === "events" && method === "GET") {
     const { q, status } = paging(url);
+    const scope = url.searchParams.get("scope");
+    const type = url.searchParams.get("type");
+    const group = url.searchParams.get("group");
+
+    let baseWhere = "";
+    const pBase: any[] = [];
+    if (c.club > 0) {
+      if (isStaff(c)) {
+        baseWhere =
+          "(e.club_id=? OR (e.scope='PUBLIC' AND e.event_status<>'DRAFT'))";
+      } else {
+        baseWhere =
+          "((e.club_id=? AND e.event_status<>'DRAFT') OR (e.scope='PUBLIC' AND e.event_status<>'DRAFT'))";
+      }
+      pBase.push(c.club);
+    } else {
+      baseWhere = "(e.scope='PUBLIC' AND e.event_status<>'DRAFT')";
+    }
+
+    const countsRow = await one(
+      c.db,
+      `SELECT 
+        SUM(CASE WHEN e.event_status IN ('OPEN', 'ONGOING', 'CLOSED', 'DRAFT') THEN 1 ELSE 0 END) AS active_count,
+        SUM(CASE WHEN e.event_status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed_count,
+        SUM(CASE WHEN e.event_status = 'CANCELLED' THEN 1 ELSE 0 END) AS cancelled_count,
+        COUNT(*) AS all_count
+      FROM EVENTS e WHERE ${baseWhere}`,
+      pBase,
+    );
+
     let sql =
-      "SELECT e.*,s.confirmed_count,s.pending_count,s.attended_count,s.attendance_rate_percent FROM EVENTS e JOIN vw_event_statistics s ON s.event_id=e.event_id WHERE e.club_id=? AND e.event_name LIKE ?";
-    const p: any[] = [c.club, "%" + q + "%"];
-    if (!isStaff(c)) sql += " AND e.event_status<>'DRAFT'";
+      "SELECT e.*, c_info.club_name, s.confirmed_count, s.pending_count, s.attended_count, s.attendance_rate_percent FROM EVENTS e JOIN CLUBS c_info ON c_info.club_id=e.club_id JOIN vw_event_statistics s ON s.event_id=e.event_id WHERE " +
+      baseWhere;
+    const p: any[] = [...pBase];
+    sql += " AND e.event_name LIKE ?";
+    p.push("%" + q + "%");
+
+    if (group === "active") {
+      sql += " AND e.event_status IN ('OPEN', 'ONGOING', 'CLOSED', 'DRAFT')";
+    } else if (group === "completed") {
+      sql += " AND e.event_status = 'COMPLETED'";
+    } else if (group === "cancelled") {
+      sql += " AND e.event_status = 'CANCELLED'";
+    }
+
     if (status) {
       sql += " AND e.event_status=?";
       p.push(status);
     }
-    const type = url.searchParams.get("type");
     if (type) {
       sql += " AND e.event_type=?";
       p.push(type);
     }
-    return json(await list(c, sql, p, "e.start_at DESC", url));
+    if (scope) {
+      sql += " AND e.scope=?";
+      p.push(scope);
+    }
+    const result = await list(c, sql, p, "e.start_at DESC", url);
+    return json({
+      ...result,
+      counts: {
+        active: Number(countsRow?.active_count || 0),
+        completed: Number(countsRow?.completed_count || 0),
+        cancelled: Number(countsRow?.cancelled_count || 0),
+        all: Number(countsRow?.all_count || 0),
+      },
+    });
   }
   if (path === "events" && method === "POST") {
-    permit(c, "OFFICER");
+    permit(c, "OFFICER", "LEADER");
     const b = eventForm.parse(await body(req));
     await checkEvent(c, b);
     const id = await insert(
@@ -106,11 +187,10 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     return json({ event_id: id }, 201);
   }
   if (path === "my-registrations" && method === "GET") {
-    const m = await member(c);
     const { q, status } = paging(url);
     let sql =
-      "SELECT r.*,e.event_name,e.event_type,e.start_at,e.location,e.registration_deadline,e.event_status,a.attendance_status FROM EVENT_REGISTRATIONS r JOIN EVENTS e ON e.event_id=r.event_id LEFT JOIN ATTENDANCE a ON a.event_id=r.event_id AND a.club_member_id=r.club_member_id WHERE r.club_member_id=? AND e.club_id=? AND e.event_name LIKE ?";
-    const p: any[] = [m.club_member_id, c.club, "%" + q + "%"];
+      "SELECT r.*,e.event_name,e.event_type,e.start_at,e.location,e.registration_deadline,e.event_status,a.attendance_status,c_info.club_name FROM EVENT_REGISTRATIONS r JOIN EVENTS e ON e.event_id=r.event_id JOIN CLUBS c_info ON c_info.club_id=e.club_id JOIN CLUB_MEMBERS m ON m.club_member_id=r.club_member_id LEFT JOIN ATTENDANCE a ON a.event_id=r.event_id AND a.club_member_id=r.club_member_id WHERE m.user_id=? AND e.event_name LIKE ?";
+    const p: any[] = [c.user.user_id, "%" + q + "%"];
     if (status) {
       sql += " AND r.registration_status=?";
       p.push(status);
@@ -121,18 +201,37 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     /^events\/(\d+)(?:\/(action|registration|registrations|attendance|participants))?$/,
   );
   if (!match) return null;
-  const event = await scoped(c, "EVENTS", "event_id", Number(match[1])),
-    sub = match[2];
+  const eventId = Number(match[1]);
+  const sub = match[2];
+
+  const event = await one(
+    c.db,
+    "SELECT e.*, c_info.club_name FROM EVENTS e JOIN CLUBS c_info ON c_info.club_id=e.club_id WHERE e.event_id=?",
+    [eventId],
+  );
+  fail(event, "Không tìm thấy sự kiện.", 404);
+
+  // Sự kiện của CLB khác chỉ xem được nếu là PUBLIC và không phải DRAFT
+  if (event.club_id !== c.club) {
+    fail(
+      event.scope === "PUBLIC" && event.event_status !== "DRAFT",
+      "Không tìm thấy sự kiện trong câu lạc bộ này.",
+      404,
+    );
+  }
+
+  // Sự kiện trong CLB: thành viên không được xem DRAFT
   fail(
-    isStaff(c) || event.event_status !== "DRAFT",
+    isStaff(c) || event.club_id !== c.club || event.event_status !== "DRAFT",
     "Không tìm thấy sự kiện.",
     404,
   );
+
   if (!sub && method === "GET") {
     const me = await one(
       c.db,
       "SELECT * FROM CLUB_MEMBERS WHERE club_id=? AND user_id=?",
-      [c.club, c.user.user_id],
+      [event.club_id, c.user.user_id],
     );
     return json({
       event,
@@ -152,6 +251,11 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     });
   }
   if (!sub && method === "PATCH") {
+    fail(
+      event.club_id === c.club,
+      "Bạn không có quyền chỉnh sửa sự kiện của câu lạc bộ khác.",
+      403,
+    );
     permit(c, "OFFICER", "LEADER");
     fail(
       !["COMPLETED", "CANCELLED"].includes(event.event_status),
@@ -171,6 +275,11 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     return json({ ok: true });
   }
   if (sub === "action" && method === "POST") {
+    fail(
+      event.club_id === c.club,
+      "Bạn không có quyền điều hành sự kiện của câu lạc bộ khác.",
+      403,
+    );
     const b = z
       .object({
         action: z.enum([
@@ -185,8 +294,23 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
         reason: z.string().trim().max(500).optional(),
       })
       .parse(await body(req));
-    if (["reopen", "unlock"].includes(b.action)) permit(c, "LEADER");
-    else permit(c, "OFFICER", "LEADER");
+    if (b.action === "publish") {
+      fail(
+        has(c, "LEADER"),
+        "Chỉ Chủ nhiệm câu lạc bộ mới có quyền công bố sự kiện.",
+        403,
+      );
+    } else if (["reopen", "unlock"].includes(b.action)) {
+      permit(c, "LEADER");
+    } else if (b.action === "cancel" && event.event_status === "ONGOING") {
+      fail(
+        has(c, "LEADER"),
+        "Sự kiện đang diễn ra chỉ có Chủ nhiệm mới có quyền hủy.",
+        403,
+      );
+    } else {
+      permit(c, "OFFICER", "LEADER");
+    }
     const transitions: any = {
       publish: { from: ["DRAFT"], to: "OPEN" },
       close: { from: ["OPEN"], to: "CLOSED" },
@@ -256,13 +380,82 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
       b.action.toUpperCase() + "_EVENT",
       extras,
     );
+    if (b.action === "publish") {
+      await notifyClubMembers(
+        c.db,
+        event.club_id,
+        {
+          title: `Sự kiện mới: ${event.event_name}`,
+          content: `Câu lạc bộ vừa công bố sự kiện "${event.event_name}". Đăng ký tham gia ngay trước khi hết hạn!`,
+          type: "EVENT",
+          linkUrl: `events/${event.event_id}`,
+        },
+        c.user.user_id,
+      );
+    }
+    if (b.action === "cancel") {
+      await notifyConfirmedAttendees(c.db, event.event_id, event.club_id, {
+        title: `Sự kiện đã bị hủy: ${event.event_name}`,
+        content: `Sự kiện "${event.event_name}" đã bị hủy. Lý do: ${b.reason || "Không có lý do cụ thể"}`,
+        type: "EVENT",
+        linkUrl: `events/${event.event_id}`,
+      });
+    }
     return json({ ok: true });
   }
   if (sub === "registration" && method === "POST") {
-    permit(c, "MEMBER");
-    const m = await member(c);
+    permit(c, "MEMBER", "LEADER", "OFFICER", "TREASURER");
     fail(
-      m.member_status === "ACTIVE",
+      c.user.account_status === "ACTIVE",
+      "Tài khoản của bạn không trong trạng thái hoạt động.",
+      403,
+    );
+    let m = await one(
+      c.db,
+      "SELECT * FROM CLUB_MEMBERS WHERE club_id=? AND user_id=?",
+      [event.club_id, c.user.user_id],
+    );
+    if (!m) {
+      fail(
+        event.scope !== "INTERNAL",
+        "Sự kiện này là sự kiện nội bộ, chỉ dành cho thành viên của câu lạc bộ.",
+        403,
+      );
+      const code = c.user.student_code || `GUEST_${c.user.user_id}`;
+      const existing = await one(
+        c.db,
+        "SELECT club_member_id FROM CLUB_MEMBERS WHERE club_id=? AND member_code=?",
+        [event.club_id, code],
+      );
+      const finalCode = existing ? `${code}_${c.user.user_id}` : code;
+      const id = await insert(
+        c,
+        "CLUB_MEMBERS",
+        {
+          club_id: event.club_id,
+          user_id: c.user.user_id,
+          member_code: finalCode,
+          join_date: day(),
+          member_status: "ACTIVE",
+          department_name: "Khách tham gia",
+          position_name: "Người tham dự",
+          created_at: now(),
+        },
+        "REGISTER_EVENT_GUEST",
+      );
+      m = await one(c.db, "SELECT * FROM CLUB_MEMBERS WHERE club_member_id=?", [
+        id,
+      ]);
+    }
+    if (event.scope === "INTERNAL") {
+      fail(
+        m && m.department_name !== "Khách tham gia",
+        "Sự kiện này là sự kiện nội bộ, chỉ dành cho thành viên của câu lạc bộ.",
+        403,
+      );
+    }
+    fail(
+      m && m.member_status === "ACTIVE",
       "Chỉ thành viên đang sinh hoạt được đăng ký.",
       403,
     );
@@ -272,7 +465,7 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     const old = await one(
       c.db,
       "SELECT * FROM EVENT_REGISTRATIONS WHERE event_id=? AND club_member_id=?",
-      [event.event_id, m.club_member_id],
+      [event.event_id, m!.club_member_id],
     );
     if (
       b.action === "register" &&
@@ -327,18 +520,36 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
         {
           ...fields,
           event_id: event.event_id,
-          club_member_id: m.club_member_id,
+          club_member_id: m!.club_member_id,
         },
         "REGISTER_EVENT",
       );
+    if (event.approval_required) {
+      await notifyClubRoles(c.db, event.club_id, ["LEADER", "OFFICER"], {
+        title: "Đăng ký sự kiện cần duyệt",
+        content: `${c.user.full_name} đã đăng ký tham gia sự kiện "${event.event_name}" và đang chờ duyệt.`,
+        type: "EVENT",
+        linkUrl: `events/${event.event_id}`,
+      });
+    }
     return json({ registration_status: status }, 201);
   }
   if (sub === "registrations" && method === "GET") {
     fail(isStaff(c), "Bạn không có quyền xem danh sách tham dự.", 403);
+    fail(
+      event.club_id === c.club,
+      "Bạn không có quyền xem danh sách tham dự của câu lạc bộ khác.",
+      403,
+    );
     const { q, status } = paging(url);
     let sql =
       "SELECT r.*,u.full_name,u.student_code,cm.member_code,cm.department_name,a.attendance_status,a.recorded_at FROM EVENT_REGISTRATIONS r JOIN CLUB_MEMBERS cm ON cm.club_member_id=r.club_member_id JOIN USERS u ON u.user_id=cm.user_id LEFT JOIN ATTENDANCE a ON a.event_id=r.event_id AND a.club_member_id=r.club_member_id WHERE r.event_id=? AND cm.club_id=? AND (u.full_name LIKE ? OR cm.member_code LIKE ?)";
-    const p: any[] = [event.event_id, c.club, "%" + q + "%", "%" + q + "%"];
+    const p: any[] = [
+      event.event_id,
+      event.club_id,
+      "%" + q + "%",
+      "%" + q + "%",
+    ];
     if (status) {
       sql += " AND r.registration_status=?";
       p.push(status);
@@ -358,12 +569,16 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     return json(await list(c, sql, p, "r.registration_id", url));
   }
   if (sub === "registrations" && method === "PATCH") {
+    fail(
+      event.club_id === c.club,
+      "Bạn không có quyền duyệt đăng ký sự kiện của câu lạc bộ khác.",
+      403,
+    );
     permit(c, "OFFICER", "LEADER");
     fail(
-      event.event_status === "OPEN" ||
-        (has(c, "LEADER") &&
-          ["CLOSED", "ONGOING"].includes(event.event_status)),
-      "Danh sách đã chốt; cần chủ nhiệm xử lý ngoại lệ.",
+      !["COMPLETED", "CANCELLED"].includes(event.event_status),
+      "Không thể duyệt đăng ký cho sự kiện đã hoàn tất hoặc bị hủy.",
+      409,
     );
     const b = z
       .object({
@@ -372,12 +587,17 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
         reason: z.string().trim().max(500).optional(),
       })
       .parse(await body(req));
-    if (event.event_status !== "OPEN")
-      fail(b.reason, "Vui lòng nhập lý do xử lý ngoại lệ.");
+    if (b.status === "REJECTED") {
+      fail(
+        b.reason && b.reason.trim().length > 0,
+        "Vui lòng nhập lý do từ chối đăng ký.",
+        400,
+      );
+    }
     const old = await one(
       c.db,
-      "SELECT r.*,cm.member_status,u.account_status FROM EVENT_REGISTRATIONS r JOIN CLUB_MEMBERS cm ON cm.club_member_id=r.club_member_id JOIN USERS u ON u.user_id=cm.user_id WHERE r.registration_id=? AND r.event_id=? AND cm.club_id=?",
-      [b.registration_id, event.event_id, c.club],
+      "SELECT r.*,cm.member_status,u.account_status,cm.user_id FROM EVENT_REGISTRATIONS r JOIN CLUB_MEMBERS cm ON cm.club_member_id=r.club_member_id JOIN USERS u ON u.user_id=cm.user_id WHERE r.registration_id=? AND r.event_id=? AND cm.club_id=?",
+      [b.registration_id, event.event_id, event.club_id],
     );
     fail(old, "Không tìm thấy đăng ký.", 404);
     fail(
@@ -415,9 +635,22 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
         ),
       ],
     );
+    await createNotification(c.db, {
+      userId: old!.user_id,
+      clubId: event.club_id,
+      title: `Đăng ký sự kiện: ${b.status === "CONFIRMED" ? "Đã được phê duyệt" : "Bị từ chối"}`,
+      content: `Đăng ký tham gia sự kiện "${event.event_name}" của bạn đã ${b.status === "CONFIRMED" ? "được xác nhận tham dự thành công." : "bị từ chối" + (b.reason ? `: ${b.reason}` : ".")}`,
+      type: "EVENT",
+      linkUrl: `events/${event.event_id}`,
+    });
     return json({ ok: true });
   }
   if (sub === "participants" && method === "POST") {
+    fail(
+      event.club_id === c.club,
+      "Bạn không có quyền bổ sung người tham dự cho câu lạc bộ khác.",
+      403,
+    );
     permit(c, "OFFICER", "LEADER");
     fail(
       ["CLOSED", "ONGOING"].includes(event.event_status) &&
@@ -458,6 +691,11 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     return json({ ok: true }, 201);
   }
   if (sub === "attendance" && method === "PUT") {
+    fail(
+      event.club_id === c.club,
+      "Bạn không có quyền điểm danh sự kiện của câu lạc bộ khác.",
+      403,
+    );
     permit(c, "OFFICER", "LEADER");
     fail(
       !event.attendance_locked,
@@ -488,13 +726,30 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
       "Danh sách có thành viên trùng.",
     );
     const statements = [];
+    const notifQueue: any[] = [];
+    const statusLabels: Record<string, string> = {
+      PRESENT: "Có mặt",
+      LATE: "Đến muộn",
+      ABSENT: "Vắng mặt",
+      EXCUSED: "Có phép",
+    };
     for (const row of b.records) {
       const reg = await one(
         c.db,
-        "SELECT r.registration_id FROM EVENT_REGISTRATIONS r JOIN CLUB_MEMBERS cm ON cm.club_member_id=r.club_member_id WHERE r.event_id=? AND r.club_member_id=? AND cm.club_id=? AND r.registration_status='CONFIRMED'",
-        [event.event_id, row.club_member_id, c.club],
+        "SELECT r.registration_id, cm.user_id FROM EVENT_REGISTRATIONS r JOIN CLUB_MEMBERS cm ON cm.club_member_id=r.club_member_id WHERE r.event_id=? AND r.club_member_id=? AND cm.club_id=? AND r.registration_status='CONFIRMED'",
+        [event.event_id, row.club_member_id, event.club_id],
       );
       fail(reg, "Chỉ điểm danh thành viên đã được xác nhận.");
+      if (reg?.user_id) {
+        notifQueue.push({
+          userId: reg.user_id,
+          clubId: event.club_id,
+          title: `Kết quả điểm danh: ${event.event_name}`,
+          content: `Kết quả điểm danh của bạn tại sự kiện "${event.event_name}": ${statusLabels[row.status] || row.status}.`,
+          type: "EVENT",
+          linkUrl: `events/${event.event_id}`,
+        });
+      }
       const old = await one(
         c.db,
         "SELECT * FROM ATTENDANCE WHERE event_id=? AND club_member_id=?",
@@ -538,6 +793,9 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
       );
     }
     await c.db.batch(statements);
+    for (const notif of notifQueue) {
+      await createNotification(c.db, notif);
+    }
     return json({ ok: true });
   }
   return null;

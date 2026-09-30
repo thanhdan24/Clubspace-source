@@ -53,3 +53,42 @@ private-uploads/
 .qa/
 !.env.example
 *.tsbuildinfo
+*.db
+/agent/
+
+# reports & office documents
+*.docx
+*.doc
+*.xlsx
+*.xls
+*.pptx
+*.ppt
+~$*
+
+# scratch & temporary workspace
+/scratch/
+/tmp/
+/temp/
+
+# python & report generation scripts
+__pycache__/
+*.py[cod]
+*$py.class
+scripts/*.py
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# IDE & editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/

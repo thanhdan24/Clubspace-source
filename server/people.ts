@@ -26,6 +26,8 @@ import {
   member,
   cleanUser,
   csv,
+  createNotification,
+  notifyClubRoles,
   type Context,
 } from "./core";
 export async function peopleRoute(c: Context, path: string, req: Request) {
@@ -110,13 +112,59 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     return json({ ok: true, relogin: true });
   }
   if (path === "notifications" && method === "GET") {
+    const unreadOnly = url.searchParams.get("unread_only") === "true";
+    const limit = Math.min(Number(url.searchParams.get("limit") || 30), 100);
+    const unreadCountRow = await one(
+      c.db,
+      "SELECT COUNT(*) AS n FROM NOTIFICATIONS WHERE user_id=? AND is_read=0",
+      [c.user.user_id],
+    );
+    const unreadCount = Number(unreadCountRow?.n || 0);
+
+    let sql = "SELECT * FROM NOTIFICATIONS WHERE user_id=?";
+    const params: any[] = [c.user.user_id];
+    if (unreadOnly) {
+      sql += " AND is_read=0";
+    }
+    sql += " ORDER BY created_at DESC, notification_id DESC LIMIT ?";
+    params.push(limit);
+
+    const rows = await all(c.db, sql, params);
     return json({
-      rows: await all(
-        c.db,
-        "SELECT a.audit_id,a.action_code,a.created_at,e.event_id,e.event_name FROM AUDIT_LOGS a JOIN EVENTS e ON CAST(e.event_id AS varchar(80))=a.entity_id JOIN EVENT_REGISTRATIONS r ON r.event_id=e.event_id JOIN CLUB_MEMBERS m ON m.club_member_id=r.club_member_id WHERE a.entity_name='EVENTS' AND a.action_code IN ('UPDATE_EVENT','CANCEL_EVENT','CLOSE_EVENT','START_EVENT') AND a.club_id=? AND m.user_id=? AND a.created_at>=r.registered_at ORDER BY a.created_at DESC,a.audit_id DESC LIMIT 10",
-        [c.club, c.user.user_id],
-      ),
+      rows: rows.map((r) => ({
+        ...r,
+        is_read: Number(r.is_read) === 1,
+      })),
+      total: rows.length,
+      unread_count: unreadCount,
     });
+  }
+  if (path === "notifications/read-all" && method === "PATCH") {
+    await stmt(
+      c.db,
+      "UPDATE NOTIFICATIONS SET is_read=1, read_at=? WHERE user_id=? AND is_read=0",
+      [now(), c.user.user_id],
+    ).run();
+    return json({ ok: true });
+  }
+  const notifMatch = path.match(/^notifications\/(\d+)(?:\/(read))?$/);
+  if (notifMatch && method === "PATCH") {
+    const notifId = Number(notifMatch[1]);
+    await stmt(
+      c.db,
+      "UPDATE NOTIFICATIONS SET is_read=1, read_at=? WHERE notification_id=? AND user_id=?",
+      [now(), notifId, c.user.user_id],
+    ).run();
+    return json({ ok: true });
+  }
+  if (notifMatch && method === "DELETE") {
+    const notifId = Number(notifMatch[1]);
+    await stmt(
+      c.db,
+      "DELETE FROM NOTIFICATIONS WHERE notification_id=? AND user_id=?",
+      [notifId, c.user.user_id],
+    ).run();
+    return json({ ok: true });
   }
   if (path === "options" && method === "GET") {
     const result: any = {
@@ -418,11 +466,365 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     return json({ ok: true });
   }
   if (path === "clubs" && method === "GET") {
-    permit(c, "ADMIN");
-    return json({
-      rows: await all(c.db, "SELECT * FROM CLUBS ORDER BY club_id"),
-      total: 0,
+    const clubs = await all(
+      c.db,
+      c.admin
+        ? "SELECT c.*, (SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE') AS active_members_count FROM CLUBS c ORDER BY c.club_id"
+        : "SELECT c.*, (SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE') AS active_members_count FROM CLUBS c WHERE c.club_status='ACTIVE' ORDER BY c.club_name",
+    );
+    const myMemberships = await all(
+      c.db,
+      "SELECT club_id, member_status, department_name FROM CLUB_MEMBERS WHERE user_id=?",
+      [c.user.user_id],
+    );
+    const myRequests = await all(
+      c.db,
+      "SELECT club_id, status, request_id, created_at, review_reason, file_url, file_name FROM CLUB_JOIN_REQUESTS WHERE user_id=?",
+      [c.user.user_id],
+    );
+    const enriched = clubs.map((club: any) => {
+      const membership = myMemberships.find(
+        (m: any) => m.club_id === club.club_id,
+      );
+      const requests = myRequests.filter(
+        (r: any) => r.club_id === club.club_id,
+      );
+      const latestReq = requests.sort((a: any, b: any) =>
+        String(b.created_at).localeCompare(String(a.created_at)),
+      )[0];
+      return {
+        ...club,
+        is_member: membership
+          ? membership.member_status === "ACTIVE" &&
+            membership.department_name !== "Khách tham gia"
+          : false,
+        member_status: membership?.member_status ?? null,
+        join_request: latestReq
+          ? {
+              status: latestReq.status,
+              request_id: latestReq.request_id,
+              review_reason: latestReq.review_reason,
+              file_url: latestReq.file_url,
+              file_name: latestReq.file_name,
+            }
+          : null,
+      };
     });
+    return json({
+      rows: enriched,
+      total: enriched.length,
+    });
+  }
+  const joinMatch = path.match(/^clubs\/(\d+)\/join$/);
+  if (joinMatch && method === "POST") {
+    fail(
+      c.user.account_status === "ACTIVE",
+      "Tài khoản của bạn không trong trạng thái hoạt động.",
+      403,
+    );
+    const targetClubId = Number(joinMatch[1]);
+    const targetClub = await one(c.db, "SELECT * FROM CLUBS WHERE club_id=?", [
+      targetClubId,
+    ]);
+    fail(
+      targetClub && targetClub.club_status === "ACTIVE",
+      "Câu lạc bộ không tồn tại hoặc đã ngừng hoạt động.",
+      404,
+    );
+    const existingMember = await one(
+      c.db,
+      "SELECT club_member_id, member_status, department_name FROM CLUB_MEMBERS WHERE club_id=? AND user_id=?",
+      [targetClubId, c.user.user_id],
+    );
+    fail(
+      !existingMember ||
+        existingMember.member_status !== "ACTIVE" ||
+        existingMember.department_name === "Khách tham gia",
+      "Bạn đã là thành viên chính thức của câu lạc bộ này.",
+      400,
+    );
+    const pendingReq = await one(
+      c.db,
+      "SELECT request_id FROM CLUB_JOIN_REQUESTS WHERE club_id=? AND user_id=? AND status='PENDING'",
+      [targetClubId, c.user.user_id],
+    );
+    fail(
+      !pendingReq,
+      "Bạn đã gửi đơn tham gia câu lạc bộ này và đang chờ xét duyệt.",
+      400,
+    );
+    const b = z
+      .object({
+        message: z.string().trim().max(1000).optional(),
+        file_url: z.string().trim().max(500).optional(),
+        file_name: z.string().trim().max(255).optional(),
+      })
+      .parse(await body(req));
+    const id = await insert(
+      c,
+      "CLUB_JOIN_REQUESTS",
+      {
+        club_id: targetClubId,
+        user_id: c.user.user_id,
+        message: b.message || null,
+        file_url: b.file_url || null,
+        file_name: b.file_name || null,
+        status: "PENDING",
+        created_at: now(),
+      },
+      "SUBMIT_JOIN_REQUEST",
+    );
+    await notifyClubRoles(c.db, targetClubId, ["LEADER", "OFFICER"], {
+      title: "Đơn xin gia nhập mới",
+      content: `${c.user.full_name} đã nộp đơn đăng ký tham gia câu lạc bộ ${targetClub.club_name}.`,
+      type: "JOIN_REQUEST",
+      linkUrl: "join-requests",
+    });
+    return json({ ok: true, request_id: id }, 201);
+  }
+  const leaveMatch = path.match(/^clubs\/(\d+)\/leave$/);
+  if (leaveMatch && method === "POST") {
+    const targetClubId = Number(leaveMatch[1]);
+    const targetClub = await one(c.db, "SELECT * FROM CLUBS WHERE club_id=?", [
+      targetClubId,
+    ]);
+    fail(targetClub, "Câu lạc bộ không tồn tại.", 404);
+
+    const member = await one(
+      c.db,
+      "SELECT * FROM CLUB_MEMBERS WHERE club_id=? AND user_id=? AND member_status='ACTIVE'",
+      [targetClubId, c.user.user_id],
+    );
+    fail(
+      member,
+      "Bạn không phải là thành viên đang hoạt động của câu lạc bộ này.",
+      400,
+    );
+
+    // Kiểm tra bảo vệ Chủ nhiệm: nếu người rời là LEADER, không được là LEADER duy nhất còn lại
+    const isLeader = await one(
+      c.db,
+      "SELECT ur.user_role_id FROM USER_ROLES ur JOIN ROLES r ON r.role_id=ur.role_id WHERE ur.club_id=? AND ur.user_id=? AND r.role_code='LEADER' AND ur.active_flag=1",
+      [targetClubId, c.user.user_id],
+    );
+    if (isLeader) {
+      const otherLeaders = await one(
+        c.db,
+        "SELECT COUNT(*) AS n FROM USER_ROLES ur JOIN ROLES r ON r.role_id=ur.role_id WHERE ur.club_id=? AND ur.user_id<>? AND r.role_code='LEADER' AND ur.active_flag=1",
+        [targetClubId, c.user.user_id],
+      );
+      fail(
+        Number(otherLeaders?.n) > 0,
+        "Bạn là Chủ nhiệm duy nhất của câu lạc bộ. Vui lòng bàn giao vai trò Chủ nhiệm cho thành viên khác trước khi rời CLB.",
+        400,
+      );
+    }
+
+    const b = z
+      .object({
+        reason: z.string().trim().max(500).optional(),
+      })
+      .parse(await body(req));
+
+    const leaveReason = b.reason || "Hội viên tự nguyện rời câu lạc bộ.";
+
+    await c.db.batch([
+      stmt(
+        c.db,
+        "UPDATE CLUB_MEMBERS SET member_status='LEFT', leave_date=?, updated_at=? WHERE club_member_id=?",
+        [day(), now(), member.club_member_id],
+      ),
+      stmt(
+        c.db,
+        "UPDATE USER_ROLES SET active_flag=0 WHERE club_id=? AND user_id=?",
+        [targetClubId, c.user.user_id],
+      ),
+      stmt(
+        c.db,
+        "INSERT INTO MEMBER_STATUS_HISTORY(club_member_id, old_status, new_status, reason, changed_by, changed_at) VALUES (?,?,?,?,?,?)",
+        [
+          member.club_member_id,
+          member.member_status,
+          "LEFT",
+          leaveReason,
+          c.user.user_id,
+          now(),
+        ],
+      ),
+      audit(c, "LEAVE_CLUB", "CLUB_MEMBERS", member.club_member_id, member, {
+        member_status: "LEFT",
+        leave_date: day(),
+        reason: leaveReason,
+      }),
+    ]);
+
+    await notifyClubRoles(c.db, targetClubId, ["LEADER"], {
+      title: "Thành viên rời câu lạc bộ",
+      content: `Thành viên ${c.user.full_name} đã rời câu lạc bộ ${targetClub.club_name}. Lý do: ${leaveReason}`,
+      type: "MEMBERSHIP",
+      linkUrl: "members",
+    });
+
+    return json({ ok: true, message: "Bạn đã rời câu lạc bộ thành công." });
+  }
+  if (path === "my-join-requests" && method === "GET") {
+    const rows = await all(
+      c.db,
+      "SELECT jr.*, c.club_name, c.club_code FROM CLUB_JOIN_REQUESTS jr JOIN CLUBS c ON c.club_id=jr.club_id WHERE jr.user_id=? ORDER BY jr.created_at DESC",
+      [c.user.user_id],
+    );
+    return json({ rows, total: rows.length });
+  }
+  if (path === "join-requests" && method === "GET") {
+    permit(c, "OFFICER", "LEADER");
+    const { q, status } = paging(url);
+    let sql = `SELECT jr.*, u.full_name, u.student_code, u.email, u.phone, u.faculty, u.class_name, reviewer.full_name AS reviewer_name FROM CLUB_JOIN_REQUESTS jr JOIN USERS u ON u.user_id=jr.user_id LEFT JOIN USERS reviewer ON reviewer.user_id=jr.reviewed_by WHERE jr.club_id=? AND (u.full_name LIKE ? OR u.student_code LIKE ?)`;
+    const p: any[] = [c.club, "%" + q + "%", "%" + q + "%"];
+    if (status) {
+      sql += " AND jr.status=?";
+      p.push(status);
+    }
+    return json(
+      await list(
+        c,
+        sql,
+        p,
+        "CASE WHEN jr.status='PENDING' THEN 0 ELSE 1 END, jr.created_at DESC",
+        url,
+      ),
+    );
+  }
+  const reqMatch = path.match(/^join-requests\/(\d+)$/);
+  if (reqMatch && method === "PATCH") {
+    permit(c, "OFFICER", "LEADER");
+    const requestId = Number(reqMatch[1]);
+    const reqRow = await one(
+      c.db,
+      "SELECT jr.*, u.student_code FROM CLUB_JOIN_REQUESTS jr JOIN USERS u ON u.user_id=jr.user_id WHERE jr.request_id=? AND jr.club_id=?",
+      [requestId, c.club],
+    );
+    fail(reqRow, "Không tìm thấy đơn đăng ký trong câu lạc bộ này.", 404);
+    fail(
+      reqRow!.status === "PENDING",
+      "Đơn đăng ký này đã được xử lý trước đó.",
+      400,
+    );
+    const b = z
+      .object({
+        status: z.enum(["APPROVED", "REJECTED"]),
+        reason: z.string().trim().max(500).optional(),
+        department_name: z.string().trim().max(120).optional(),
+      })
+      .parse(await body(req));
+    if (b.status === "REJECTED") {
+      fail(
+        b.reason && b.reason.length > 0,
+        "Vui lòng nhập lý do từ chối.",
+        400,
+      );
+      await change(
+        c,
+        "CLUB_JOIN_REQUESTS",
+        "request_id",
+        requestId,
+        {
+          status: "REJECTED",
+          reviewed_by: c.user.user_id,
+          reviewed_at: now(),
+          review_reason: b.reason,
+          updated_at: now(),
+        },
+        reqRow!,
+        "REJECT_JOIN_REQUEST",
+      );
+      await createNotification(c.db, {
+        userId: reqRow!.user_id,
+        clubId: c.club,
+        title: "Đơn gia nhập không được phê duyệt",
+        content: `Đơn gia nhập CLB của bạn đã bị từ chối. Lý do: ${b.reason}`,
+        type: "JOIN_REQUEST",
+        linkUrl: "my-join-requests",
+      });
+      return json({ ok: true });
+    }
+    const targetUserId = reqRow!.user_id;
+    const existingMember = await one(
+      c.db,
+      "SELECT * FROM CLUB_MEMBERS WHERE club_id=? AND user_id=?",
+      [c.club, targetUserId],
+    );
+    const memberRole = await one(
+      c.db,
+      "SELECT role_id FROM ROLES WHERE role_code='MEMBER'",
+    );
+    const existingRole = await one(
+      c.db,
+      "SELECT * FROM USER_ROLES WHERE user_id=? AND club_id=? AND role_id=?",
+      [targetUserId, c.club, memberRole!.role_id],
+    );
+    const grantRoleStmt = existingRole
+      ? stmt(
+          c.db,
+          "UPDATE USER_ROLES SET active_flag=1,assigned_by=?,assigned_at=? WHERE user_role_id=?",
+          [c.user.user_id, now(), existingRole.user_role_id],
+        )
+      : stmt(
+          c.db,
+          "INSERT INTO USER_ROLES(user_id,role_id,club_id,assigned_by,assigned_at,active_flag) VALUES (?,?,?,?,?,1)",
+          [targetUserId, memberRole!.role_id, c.club, c.user.user_id, now()],
+        );
+    const dept = b.department_name || "Ban Thành viên";
+    let memberStmt: any;
+    if (existingMember) {
+      memberStmt = stmt(
+        c.db,
+        "UPDATE CLUB_MEMBERS SET member_status='ACTIVE', department_name=?, position_name='Thành viên', updated_at=? WHERE club_member_id=?",
+        [dept, now(), existingMember.club_member_id],
+      );
+    } else {
+      const code = reqRow!.student_code || `MB_${targetUserId}`;
+      const codeTaken = await one(
+        c.db,
+        "SELECT club_member_id FROM CLUB_MEMBERS WHERE club_id=? AND member_code=?",
+        [c.club, code],
+      );
+      const finalCode = codeTaken ? `${code}_${targetUserId}` : code;
+      memberStmt = stmt(
+        c.db,
+        "INSERT INTO CLUB_MEMBERS (club_id, user_id, member_code, join_date, member_status, department_name, position_name, created_at) VALUES (?,?,?,?,'ACTIVE',?,'Thành viên',?)",
+        [c.club, targetUserId, finalCode, day(), dept, now()],
+      );
+    }
+    await c.db.batch([
+      stmt(
+        c.db,
+        "UPDATE CLUB_JOIN_REQUESTS SET status='APPROVED', reviewed_by=?, reviewed_at=?, review_reason=?, updated_at=? WHERE request_id=?",
+        [c.user.user_id, now(), b.reason || "Đã duyệt", now(), requestId],
+      ),
+      grantRoleStmt,
+      memberStmt,
+      audit(
+        c,
+        "APPROVE_JOIN_REQUEST",
+        "CLUB_JOIN_REQUESTS",
+        requestId,
+        reqRow!,
+        {
+          status: "APPROVED",
+          user_id: targetUserId,
+          department_name: dept,
+        },
+      ),
+    ]);
+    await createNotification(c.db, {
+      userId: targetUserId,
+      clubId: c.club,
+      title: "Đơn gia nhập đã được phê duyệt!",
+      content: `Chúc mừng bạn! Ban chủ nhiệm đã phê duyệt đơn gia nhập CLB của bạn vào phòng ban "${dept}".`,
+      type: "JOIN_REQUEST",
+      linkUrl: "members",
+    });
+    return json({ ok: true });
   }
   if (path === "clubs" && method === "POST") {
     permit(c, "ADMIN");
