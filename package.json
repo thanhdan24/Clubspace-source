@@ -7,7 +7,7 @@
     },
     "scripts": {
         "install:ci": "pnpm install --frozen-lockfile",
-        "dev": "vite --config standalone/vite.config.ts",
+        "dev": "node scripts/dev.mjs",
         "build": "vite build --config standalone/vite.config.ts",
         "start": "node --env-file=.env --import tsx server/node.ts",
         "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
