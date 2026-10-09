@@ -16,6 +16,7 @@ import {
   Users,
   CalendarDays,
   BarChart3,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -294,6 +295,39 @@ function TransactionDetail({ row, onClose, onEdit }: any) {
                       <strong>Lý do từ chối:</strong> {t.rejection_reason}
                     </div>
                   )}
+                  {t.transaction_type === "EXPENSE" &&
+                    t.transaction_status === "APPROVED" && (
+                      <div className="inline-notice">
+                        <AlertCircle size={18} className="shrink-0 text-amber-600" />
+                        <div>
+                          <strong className="block text-sm">
+                            Khoản chi đã được phê duyệt chủ trương
+                          </strong>
+                          <span className="text-xs text-muted-foreground mt-0.5 block">
+                            {can("TREASURER")
+                              ? !t.evidence_url
+                                ? "Chủ nhiệm đã duyệt khoản chi này. Vui lòng bấm 'Bổ sung chứng từ' trước, sau đó bấm 'Ghi sổ giao dịch' để chính thức xuất quỹ và trừ vào số dư."
+                                : "Khoản chi đã có chứng từ. Sau khi đã chi tiền ngoài thực tế, hãy bấm 'Ghi sổ giao dịch' bên dưới để hệ thống trừ tiền trong quỹ."
+                              : "Khoản chi đã được phê duyệt. Theo nguyên tắc kiểm soát 4 mắt (Dual Control), số dư quỹ chỉ được trừ khi Thủ quỹ thực chi và bấm 'Ghi sổ giao dịch'."}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  {t.transaction_status === "PENDING_APPROVAL" && (
+                    <div className="inline-notice">
+                      <AlertCircle size={18} className="shrink-0 text-amber-600" />
+                      <div>
+                        <strong className="block text-sm">
+                          Khoản chi đang chờ Ban chủ nhiệm duyệt
+                        </strong>
+                        <span className="text-xs text-muted-foreground mt-0.5 block">
+                          {can("LEADER")
+                            ? "Đề xuất chi đang chờ bạn xem xét. Bấm 'Phê duyệt chi' bên dưới để chấp thuận chủ trương."
+                            : "Đề xuất chi đã được gửi tới Ban chủ nhiệm để xem xét phê duyệt."}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                   <h3 className="subheading">Chứng từ</h3>
                   {t.evidence_url?.startsWith("/api/evidence/") ? (
                     <Button asChild variant="outline">
@@ -390,14 +424,24 @@ function TransactionDetail({ row, onClose, onEdit }: any) {
                         (t.transaction_type === "EXPENSE" &&
                           t.transaction_status === "APPROVED")) && (
                         <Button
-                          onClick={() =>
+                          onClick={() => {
+                            if (
+                              t.transaction_type === "EXPENSE" &&
+                              !t.evidence_url
+                            ) {
+                              toast.error(
+                                "Vui lòng bổ sung chứng từ trước khi ghi sổ khoản chi.",
+                              );
+                              setEvidence(true);
+                              return;
+                            }
                             setConfirm({
                               action: "post",
                               title: "Xác nhận tiền đã thực thu / thực chi?",
                               description:
                                 "Giao dịch sẽ được ghi vào sổ quỹ và ảnh hưởng đến số dư. Chỉ xác nhận khi tiền đã thực sự được nhận hoặc thanh toán.",
-                            })
-                          }
+                            });
+                          }}
                         >
                           Ghi sổ giao dịch
                         </Button>
