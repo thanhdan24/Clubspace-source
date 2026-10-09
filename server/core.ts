@@ -179,6 +179,7 @@ export async function change(
         CLUB_MEMBERS: ["member_status"],
         USER_ROLES: ["active_flag"],
         FINANCE_CATEGORIES: ["active_flag"],
+        CLUB_DEPARTMENTS: ["active_flag"],
       } as Record<string, string[]>
     )[table] || [];
   const sql =

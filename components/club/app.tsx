@@ -30,6 +30,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   Check,
+  FolderTree,
 } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import {
@@ -70,6 +71,7 @@ import WebTools from "./web-tools";
 import Notifications from "./notifications";
 import {
   Members,
+  Departments,
   Accounts,
   Roles,
   Clubs,
@@ -116,6 +118,12 @@ const management = [
     label: "Yêu cầu tham gia",
     icon: Users,
     roles: ["LEADER", "OFFICER"],
+  },
+  {
+    id: "departments",
+    label: "Ban / Nhóm CLB",
+    icon: FolderTree,
+    roles: ["ADMIN", "LEADER", "OFFICER", "TREASURER"],
   },
   { id: "accounts", label: "Tài khoản", icon: UserRound, roles: ["ADMIN"] },
   { id: "clubs", label: "Câu lạc bộ", icon: Building2, roles: ["ADMIN"] },
@@ -179,6 +187,12 @@ const adminSupervision = [
     roles: ["ADMIN"],
   },
   { id: "members", label: "Thành viên CLB", icon: Users, roles: ["ADMIN"] },
+  {
+    id: "departments",
+    label: "Ban / Nhóm CLB",
+    icon: FolderTree,
+    roles: ["ADMIN"],
+  },
   { id: "events", label: "Sự kiện CLB", icon: CalendarDays, roles: ["ADMIN"] },
   { id: "finance", label: "Tài chính CLB", icon: Wallet, roles: ["ADMIN"] },
   { id: "reports", label: "Báo cáo CLB", icon: BarChart3, roles: ["ADMIN"] },
@@ -783,6 +797,7 @@ const navPrefetchPaths: Record<string, string> = {
   clubs: "clubs?limit=12",
   roles: "roles",
   categories: "categories",
+  departments: "departments",
   audit: "audit?limit=15",
 };
 
@@ -928,6 +943,12 @@ export default function ClubApp() {
       case "categories":
         page = <Categories />;
         break;
+      case "departments":
+        page = <Departments />;
+        break;
+      case "join-requests":
+        page = <Members initialTab="requests" />;
+        break;
       case "reports":
         page = <Reports />;
         break;
@@ -967,6 +988,7 @@ export default function ClubApp() {
   return (
     <AppContext.Provider
       value={{
+        route,
         session,
         club,
         version,

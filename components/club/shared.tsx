@@ -887,6 +887,8 @@ export type Field = {
   max?: any;
   maxLength?: number;
   help?: string;
+  disabled?: boolean;
+  readOnly?: boolean;
 };
 export function Editor({
   title,
@@ -901,6 +903,8 @@ export function Editor({
     [error, setError] = useState(""),
     [errors, setErrors] = useState<Row>({}),
     [busy, setBusy] = useState(false);
+  const currentFields: Field[] =
+    typeof fields === "function" ? fields(values) : fields;
   return (
     <Dialog
       open
@@ -921,9 +925,11 @@ export function Editor({
             e.preventDefault();
             setError("");
             setErrors({});
-            const missing = fields.filter(
+            const missing = currentFields.filter(
               (f: Field) =>
                 f.required &&
+                !f.disabled &&
+                !f.readOnly &&
                 (values[f.name] === undefined ||
                   values[f.name] === null ||
                   values[f.name] === ""),
@@ -953,7 +959,7 @@ export function Editor({
           }}
         >
           <div className="editor-fields">
-            {fields.map((f: Field) => (
+            {currentFields.map((f: Field) => (
               <div
                 className={"field " + (f.wide ? "field-wide" : "")}
                 key={f.name}
@@ -990,6 +996,8 @@ export function Editor({
                     max={f.max}
                     maxLength={f.maxLength || 500}
                     placeholder={f.placeholder}
+                    disabled={f.disabled}
+                    readOnly={f.readOnly}
                     autoComplete={
                       f.type === "password" ? "new-password" : "off"
                     }
