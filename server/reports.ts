@@ -341,6 +341,7 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
   let fund: any = null;
   let monthly: any[] = [];
   let pending: any[] = [];
+  let awaiting_post: any[] = [];
 
   if (finance) {
     fund = await one(
@@ -385,6 +386,24 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
        ORDER BY t.created_at DESC, t.transaction_id DESC`,
       [c.club],
     );
+
+    awaiting_post = await all(
+      c.db,
+      `SELECT
+         t.*,
+         cat.category_name,
+         u.full_name AS creator_name,
+         ap.full_name AS approver_name
+       FROM FINANCIAL_TRANSACTIONS t
+       JOIN FINANCE_CATEGORIES cat ON cat.category_id=t.category_id
+       JOIN USERS u ON u.user_id=t.created_by
+       LEFT JOIN USERS ap ON ap.user_id=t.approved_by
+       WHERE t.club_id=?
+         AND t.transaction_type='EXPENSE'
+         AND t.transaction_status='APPROVED'
+       ORDER BY t.approved_at DESC, t.transaction_id DESC`,
+      [c.club],
+    );
   }
 
   const departmentRows = await all(
@@ -420,19 +439,17 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
     [c.club],
   );
 
-  const activity =
-    c.admin || has(c, "LEADER")
-      ? await all(
-          c.db,
-          `SELECT a.*, u.full_name
-           FROM AUDIT_LOGS a
-           LEFT JOIN USERS u ON u.user_id=a.user_id
-           WHERE a.club_id=?
-           ORDER BY a.created_at DESC, a.audit_id DESC
-           LIMIT 5`,
-          [c.club],
-        )
-      : [];
+  const activity = await all(
+    c.db,
+    `SELECT a.*, u.full_name, u.username, c_info.club_name
+     FROM AUDIT_LOGS a
+     LEFT JOIN USERS u ON u.user_id=a.user_id
+     LEFT JOIN CLUBS c_info ON c_info.club_id=a.club_id
+     WHERE a.club_id=? OR (a.club_id IS NULL AND ?)
+     ORDER BY a.created_at DESC, a.audit_id DESC
+     LIMIT 10`,
+    [c.club, c.admin ? 1 : 0],
+  );
 
   if (u.searchParams.get("export") === "csv") {
     if (type === "finance") {
@@ -488,6 +505,14 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
     fund,
     monthly,
     pending,
+    awaiting_post,
+    finance_tasks: {
+      pending_count: pending.length,
+      pending_amount: pending.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
+      awaiting_post_count: awaiting_post.length,
+      awaiting_post_amount: awaiting_post.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
+      is_all_posted: pending.length === 0 && awaiting_post.length === 0,
+    },
     departments,
     recentMembers,
     activity,
