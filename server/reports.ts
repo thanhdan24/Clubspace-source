@@ -140,7 +140,7 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
       c.db,
       `SELECT
          c.*,
-         COALESCE((SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE'), 0) AS active_members_count
+         COALESCE((SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE' AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia') AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự')), 0) AS active_members_count
        FROM CLUBS c
        ORDER BY c.club_id DESC
        LIMIT 8`,
@@ -307,6 +307,8 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
        COALESCE(SUM(CASE WHEN member_status='LEFT' THEN 1 ELSE 0 END),0) AS departed
      FROM CLUB_MEMBERS
      WHERE club_id=?
+       AND (department_name IS NULL OR department_name != 'Khách tham gia')
+       AND (position_name IS NULL OR position_name != 'Người tham dự')
        AND join_date>=?
        AND join_date<=?`,
     [c.club, memberFrom, memberTo],
@@ -412,6 +414,8 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
      FROM CLUB_MEMBERS
      WHERE club_id=?
        AND member_status='ACTIVE'
+       AND (department_name IS NULL OR department_name != 'Khách tham gia')
+       AND (position_name IS NULL OR position_name != 'Người tham dự')
        AND join_date>=?
        AND join_date<=?
      GROUP BY department_name
@@ -434,6 +438,8 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
      FROM CLUB_MEMBERS cm
      JOIN USERS u ON u.user_id=cm.user_id
      WHERE cm.club_id=?
+       AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia')
+       AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự')
      ORDER BY cm.created_at DESC, cm.club_member_id DESC
      LIMIT 4`,
     [c.club],

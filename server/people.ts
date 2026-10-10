@@ -228,7 +228,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     if (isStaff(c))
       result.members = await all(
         c.db,
-        "SELECT cm.club_member_id,cm.member_code,u.full_name,cm.user_id FROM CLUB_MEMBERS cm JOIN USERS u ON u.user_id=cm.user_id WHERE cm.club_id=? ORDER BY u.full_name",
+        "SELECT cm.club_member_id,cm.member_code,u.full_name,cm.user_id FROM CLUB_MEMBERS cm JOIN USERS u ON u.user_id=cm.user_id WHERE cm.club_id=? AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia') AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự') ORDER BY u.full_name",
         [c.club],
       );
     if (c.admin || has(c, "LEADER", "OFFICER"))
@@ -263,7 +263,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     const { q, status } = paging(url);
     const p: any[] = [c.club, "%" + q + "%", "%" + q + "%"];
     let sql =
-      "SELECT cm.*,u.full_name,u.student_code,u.email,u.phone,u.faculty,u.class_name,u.account_status FROM CLUB_MEMBERS cm JOIN USERS u ON u.user_id=cm.user_id WHERE cm.club_id=? AND (u.full_name LIKE ? OR cm.member_code LIKE ?)";
+      "SELECT cm.*,u.full_name,u.student_code,u.email,u.phone,u.faculty,u.class_name,u.account_status FROM CLUB_MEMBERS cm JOIN USERS u ON u.user_id=cm.user_id WHERE cm.club_id=? AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia') AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự') AND (u.full_name LIKE ? OR cm.member_code LIKE ?)";
     if (status) {
       sql += " AND cm.member_status=?";
       p.push(status);
@@ -599,8 +599,8 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     const clubs = await all(
       c.db,
       c.admin
-        ? "SELECT c.*, (SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE') AS active_members_count FROM CLUBS c ORDER BY c.club_id"
-        : "SELECT c.*, (SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE') AS active_members_count FROM CLUBS c WHERE c.club_status='ACTIVE' ORDER BY c.club_name",
+        ? "SELECT c.*, (SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE' AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia') AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự')) AS active_members_count FROM CLUBS c ORDER BY c.club_id"
+        : "SELECT c.*, (SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE' AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia') AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự')) AS active_members_count FROM CLUBS c WHERE c.club_status='ACTIVE' ORDER BY c.club_name",
     );
     const myMemberships = await all(
       c.db,
