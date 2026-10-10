@@ -439,16 +439,20 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
     [c.club],
   );
 
+  const activityWhere = c.admin
+    ? "a.club_id=? OR a.club_id IS NULL"
+    : "a.club_id=?";
+
   const activity = await all(
     c.db,
     `SELECT a.*, u.full_name, u.username, c_info.club_name
      FROM AUDIT_LOGS a
      LEFT JOIN USERS u ON u.user_id=a.user_id
      LEFT JOIN CLUBS c_info ON c_info.club_id=a.club_id
-     WHERE a.club_id=? OR (a.club_id IS NULL AND ?)
+     WHERE ${activityWhere}
      ORDER BY a.created_at DESC, a.audit_id DESC
      LIMIT 10`,
-    [c.club, c.admin ? 1 : 0],
+    [c.club],
   );
 
   if (u.searchParams.get("export") === "csv") {
