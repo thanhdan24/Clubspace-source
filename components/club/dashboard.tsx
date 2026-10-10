@@ -360,7 +360,7 @@ export function PendingApprovalSection({
   tasks?: any;
   pending?: any[];
   awaitingPost?: any[];
-  can: (code: string) => boolean;
+  can: (...codes: string[]) => boolean;
   navigate: (path: string) => void;
 }) {
   const pendingCount = pending.length;
@@ -440,7 +440,7 @@ export function PendingApprovalSection({
       </div>
 
       <div className="w-full space-y-2">
-        {pendingCount > 0 && can("APPROVE_EXPENSE") && (
+        {pendingCount > 0 && can("LEADER", "ADMIN") && (
           <Button
             variant="default"
             size="sm"
@@ -450,7 +450,7 @@ export function PendingApprovalSection({
             Phê duyệt đề xuất ({pendingCount}) <ArrowRight size={14} className="ml-1" />
           </Button>
         )}
-        {awaitingCount > 0 && can("POST_TRANSACTION") && (
+        {awaitingCount > 0 && can("TREASURER", "ADMIN") && (
           <Button
             variant="outline"
             size="sm"
@@ -460,7 +460,7 @@ export function PendingApprovalSection({
             Ghi sổ khoản chi ({awaitingCount}) <ArrowRight size={14} className="ml-1" />
           </Button>
         )}
-        {!can("APPROVE_EXPENSE") && !can("POST_TRANSACTION") && (
+        {!can("LEADER", "ADMIN") && !can("TREASURER", "ADMIN") && (
           <Button
             variant="outline"
             size="sm"
@@ -504,10 +504,16 @@ export default function Dashboard() {
         title={`Xin chào, ${session.user.full_name.split("·")[0].trim().split(" ").slice(-2).join(" ")}!`}
         description={today}
       >
-        {can("OFFICER") && (
+        {can("OFFICER", "LEADER") && (
           <Button onClick={() => navigate("events?new")}>
             <Plus size={17} />
             Tạo sự kiện
+          </Button>
+        )}
+        {can("LEADER") && (
+          <Button variant="outline" onClick={() => navigate("approvals")}>
+            <CheckCheck size={17} />
+            Phê duyệt
           </Button>
         )}
       </PageTitle>
@@ -568,14 +574,14 @@ export default function Dashboard() {
                 <>
                   <Metric
                     label="Tổng thành viên"
-                    value={num(d.counts.total)}
-                    caption={`${num(d.counts.active)} thành viên đang sinh hoạt`}
+                    value={num(d.counts?.total)}
+                    caption={`${num(d.counts?.active)} thành viên đang sinh hoạt`}
                     icon={Users}
                   />
                   <Metric
                     label="Sự kiện của CLB"
-                    value={num(d.stats.events)}
-                    caption={`${num(d.stats.open)} sự kiện đang công bố`}
+                    value={num(d.stats?.events)}
+                    caption={`${num(d.stats?.open)} sự kiện đang công bố`}
                     icon={CalendarDays}
                     tone="blue"
                   />
@@ -589,14 +595,14 @@ export default function Dashboard() {
                   ) : (
                     <Metric
                       label="Lượt đăng ký"
-                      value={num(d.stats.registrations)}
-                      caption={`${num(d.stats.pending)} đăng ký đang chờ duyệt`}
+                      value={num(d.stats?.registrations)}
+                      caption={`${num(d.stats?.pending)} đăng ký đang chờ duyệt`}
                       icon={CheckCheck}
                     />
                   )}
                   <Metric
                     label="Tỷ lệ tham dự"
-                    value={d.stats.attendance + "%"}
+                    value={(d.stats?.attendance ?? 0) + "%"}
                     caption="Các sự kiện đã hoàn tất"
                     icon={Activity}
                     tone="orange"
@@ -720,7 +726,7 @@ export default function Dashboard() {
                         Thêm thành viên
                       </button>
                     )}
-                    {can("OFFICER") && (
+                    {can("OFFICER", "LEADER") && (
                       <button onClick={() => navigate("events?new")}>
                         <span>
                           <CalendarDays size={20} />
@@ -760,7 +766,16 @@ export default function Dashboard() {
                 </section>
                 {d.departments && (
                   <section className="panel departments">
-                    <SectionHeader title="Các ban & nhóm" />
+                    <SectionHeader title="Các ban & nhóm">
+                      {can("LEADER") && (
+                        <button
+                          className="text-link"
+                          onClick={() => navigate("departments")}
+                        >
+                          Quản lý <ArrowUpRight size={16} />
+                        </button>
+                      )}
+                    </SectionHeader>
                     <p className="section-note">Thành viên đang sinh hoạt</p>
                     {d.departments.map((item: any, i: number) => (
                       <div className="department-row" key={item.name}>
