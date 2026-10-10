@@ -16,8 +16,38 @@ export async function handleApi(
       path = url.pathname.replace(/^\/api\//, "").replace(/\/$/, "");
     if (!["GET", "HEAD"].includes(req.method)) {
       const origin = req.headers.get("origin");
+      const isAllowedOrigin = (orig: string | null): boolean => {
+        if (!orig) return true;
+        try {
+          const parsed = new URL(orig);
+          if (parsed.origin === url.origin) return true;
+          if (env.APP_ORIGIN) {
+            const configuredOrigins = String(env.APP_ORIGIN)
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean);
+            for (const appOrig of configuredOrigins) {
+              try {
+                if (parsed.origin === new URL(appOrig).origin) return true;
+              } catch {}
+            }
+          }
+          const isLocal = (h: string) =>
+            h === "localhost" || h === "127.0.0.1" || h === "::1";
+          const reqHost = (req.headers.get("host") || "").split(":")[0];
+          if (
+            isLocal(parsed.hostname) &&
+            (isLocal(url.hostname) || isLocal(reqHost))
+          ) {
+            return true;
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      };
       fail(
-        !origin || origin === url.origin,
+        isAllowedOrigin(origin),
         "Nguồn yêu cầu không hợp lệ.",
         403,
       );

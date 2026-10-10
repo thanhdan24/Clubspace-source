@@ -131,6 +131,23 @@ Khóa ngoại: club_id → CLUBS.club_id; user_id → USERS.user_id
 
 Index: IX_AL_entity (entity_name, entity_id)
 
+## CLUB_DEPARTMENTS
+
+Danh sách các ban, nhóm chuyên môn trong câu lạc bộ do Chủ nhiệm / Cán bộ tạo và quản lý.
+
+| Cột             | Kiểu SQL Server      | Cho NULL | PK    |
+| --------------- | -------------------- | -------- | ----- |
+| department_id   | bigint IDENTITY(1,1) | False    | True  |
+| club_id         | bigint               | False    | False |
+| department_name | nvarchar (100)       | False    | False |
+| description     | nvarchar (max)       | True     | False |
+| active_flag     | smallint             | False    | False |
+| created_at      | datetime2 (0)        | False    | False |
+
+Khóa ngoại: club_id → CLUBS.club_id
+
+Index: UQ_CLUB_DEPARTMENTS_club_name (club_id, department_name); IX_CD_club_active (club_id, active_flag)
+
 ## CLUB_MEMBERS
 
 13 bản ghi trong tệp gốc.

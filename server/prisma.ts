@@ -1,7 +1,52 @@
 import { PrismaClient, Prisma } from "@prisma/client";
 import type { Database, Statement, Row } from "./core";
 
+function resolveDatabaseUrl(): string | undefined {
+  let url = process.env.DATABASE_URL || process.env.DIRECT_URL;
+  if (!url) return undefined;
+  try {
+    const parsed = new URL(url);
+    // Pin to the healthy Tokyo pooler IP to prevent 30-60s timeouts from dead ELB nodes
+    if (parsed.hostname === "aws-1-ap-northeast-1.pooler.supabase.com") {
+      parsed.hostname = "18.176.230.146";
+    }
+    if (parsed.port === "6543" || parsed.host.includes(":6543")) {
+      parsed.searchParams.set("pgbouncer", "true");
+    }
+    parsed.searchParams.set("sslmode", "prefer");
+    parsed.searchParams.set("connection_limit", "1");
+    parsed.searchParams.set("pool_timeout", "60");
+    parsed.searchParams.set("connect_timeout", "60");
+    return parsed.toString();
+  } catch {
+    if (url.includes("aws-1-ap-northeast-1.pooler.supabase.com")) {
+      url = url.replace("aws-1-ap-northeast-1.pooler.supabase.com", "18.176.230.146");
+    }
+    if (url.includes(":6543") && !url.includes("pgbouncer")) {
+      url += (url.includes("?") ? "&" : "?") + "pgbouncer=true";
+    }
+    if (!url.includes("sslmode")) {
+      url += (url.includes("?") ? "&" : "?") + "sslmode=prefer";
+    }
+    if (url.includes("connection_limit")) {
+      url = url.replace(/connection_limit=\d+/, "connection_limit=1");
+    } else {
+      url += (url.includes("?") ? "&" : "?") + "connection_limit=1";
+    }
+    if (!url.includes("pool_timeout")) {
+      url += "&pool_timeout=60";
+    }
+    if (!url.includes("connect_timeout")) {
+      url += "&connect_timeout=60";
+    }
+    return url;
+  }
+}
+
+const resolvedDbUrl = resolveDatabaseUrl();
+
 export const prisma = new PrismaClient({
+  datasources: resolvedDbUrl ? { db: { url: resolvedDbUrl } } : undefined,
   log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
 });
 
@@ -23,6 +68,7 @@ const TABLE_NAMES = [
   "APP_SETUP",
   "CLUB_JOIN_REQUESTS",
   "NOTIFICATIONS",
+  "CLUB_DEPARTMENTS",
   "vw_club_fund_summary",
   "vw_event_statistics",
 ];
@@ -38,6 +84,23 @@ export function convertSqlToPostgres(source: string, parameters: unknown[]) {
   text = text.replace(TABLE_REGEX, '"$1"');
   text = text.replace(/\bSUBSTR\(/gi, "SUBSTRING(");
   return { text, parameters };
+}
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    const isConnErr =
+      err?.message?.includes("Can't reach database") ||
+      err?.message?.includes("connection pool") ||
+      err?.code === "P1001" ||
+      err?.code === "P2024";
+    if (isConnErr) {
+      await new Promise((r) => setTimeout(r, 600));
+      return await fn();
+    }
+    throw err;
+  }
 }
 
 function normalizeValue(v: unknown): unknown {
@@ -94,9 +157,8 @@ export class PrismaStatement implements Statement {
     const normalizedValues = this.values.map(normalizeValue);
 
     if (isSelect || isInsert) {
-      const rawRows = (await this.client.$queryRawUnsafe(
-        text,
-        ...normalizedValues,
+      const rawRows = (await withRetry(() =>
+        this.client.$queryRawUnsafe(text, ...normalizedValues),
       )) as Record<string, unknown>[];
       const rows = rawRows.map(serializeRow);
 
@@ -117,6 +179,7 @@ export class PrismaStatement implements Statement {
           first.audit_id ??
           first.attempt_id ??
           first.setup_id ??
+          first.department_id ??
           Object.values(first)[0];
         lastRowId = Number(idVal || 0);
       }
@@ -130,9 +193,8 @@ export class PrismaStatement implements Statement {
         },
       };
     } else {
-      const changes = await this.client.$executeRawUnsafe(
-        text,
-        ...normalizedValues,
+      const changes = await withRetry(() =>
+        this.client.$executeRawUnsafe(text, ...normalizedValues),
       );
       return {
         results: [],
@@ -185,7 +247,8 @@ export class PrismaDatabase implements Database {
           return results;
         },
         {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 15000,
+          timeout: 30000,
         },
       );
     } else {

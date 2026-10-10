@@ -749,7 +749,18 @@ function Roster({ event, attendance = false }: any) {
                 </div>
               ),
             },
-            { key: "department_name", title: "BAN / NHÓM" },
+            {
+              key: "department_name",
+              title: "BAN / ĐƠN VỊ",
+              render: (r: Row) =>
+                r.department_name === "Khách tham gia" ? (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                    Khách ngoài CLB
+                  </span>
+                ) : (
+                  r.department_name || "Chưa phân ban"
+                ),
+            },
             ...(!attendance
               ? [
                   {

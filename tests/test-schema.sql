@@ -60,11 +60,24 @@ CREATE TABLE `CLUBS` (
 	`description` text,
 	`founded_date` text,
 	`club_status` text NOT NULL,
+	`member_code_prefix` text DEFAULT 'MB',
 	`created_at` text NOT NULL,
 	CONSTRAINT "CK_CLUBS_club_status" CHECK(("CLUBS"."club_status"='INACTIVE' OR "CLUBS"."club_status"='ACTIVE'))
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `UQ_CLUBS_club_code` ON `CLUBS` (`club_code`);--> statement-breakpoint
+CREATE TABLE `CLUB_DEPARTMENTS` (
+	`department_id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`club_id` integer NOT NULL,
+	`department_name` text NOT NULL,
+	`description` text,
+	`active_flag` integer DEFAULT 1 NOT NULL,
+	`created_at` text NOT NULL,
+	FOREIGN KEY (`club_id`) REFERENCES `CLUBS`(`club_id`) ON UPDATE no action ON DELETE no action
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX `UQ_CLUB_DEPARTMENTS_club_name` ON `CLUB_DEPARTMENTS` (`club_id`,`department_name`);--> statement-breakpoint
+CREATE INDEX `IX_CD_club_active` ON `CLUB_DEPARTMENTS` (`club_id`,`active_flag`);--> statement-breakpoint
 CREATE TABLE `CLUB_MEMBERS` (
 	`club_member_id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`club_id` integer NOT NULL,

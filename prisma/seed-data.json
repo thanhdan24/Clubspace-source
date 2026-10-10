@@ -7,6 +7,7 @@
       "description": "Câu lạc bộ học thuật, kỹ năng và công nghệ dành cho sinh viên.",
       "founded_date": "2022-09-01",
       "club_status": "ACTIVE",
+      "member_code_prefix": "CNTT",
       "created_at": "2026-08-24T13:57:40"
     },
     {
@@ -16,6 +17,89 @@
       "description": "Câu lạc bộ luyện giao tiếp, học thuật và tổ chức hoạt động tiếng Anh.",
       "founded_date": "2021-10-15",
       "club_status": "ACTIVE",
+      "member_code_prefix": "TA",
+      "created_at": "2026-08-24T13:57:40"
+    }
+  ],
+  "CLUB_DEPARTMENTS": [
+    {
+      "department_id": 1,
+      "club_id": 1,
+      "department_name": "Ban chủ nhiệm",
+      "description": "Ban điều hành chung và đại diện câu lạc bộ",
+      "active_flag": 1,
+      "created_at": "2026-08-24T13:57:40"
+    },
+    {
+      "department_id": 2,
+      "club_id": 1,
+      "department_name": "Ban Kỹ thuật",
+      "description": "Phụ trách chuyên môn kỹ thuật, đào tạo và các dự án công nghệ",
+      "active_flag": 1,
+      "created_at": "2026-08-24T13:57:40"
+    },
+    {
+      "department_id": 3,
+      "club_id": 1,
+      "department_name": "Ban Sự kiện",
+      "description": "Lập kế hoạch và tổ chức các sự kiện, workshop, cuộc thi",
+      "active_flag": 1,
+      "created_at": "2026-08-24T13:57:40"
+    },
+    {
+      "department_id": 4,
+      "club_id": 1,
+      "department_name": "Ban Tài chính",
+      "description": "Quản lý ngân sách, thu chi và thủ tục quỹ câu lạc bộ",
+      "active_flag": 1,
+      "created_at": "2026-08-24T13:57:40"
+    },
+    {
+      "department_id": 5,
+      "club_id": 1,
+      "department_name": "Ban Truyền thông",
+      "description": "Quản lý kênh truyền thông, thiết kế hình ảnh và nội dung bài viết",
+      "active_flag": 1,
+      "created_at": "2026-08-24T13:57:40"
+    },
+    {
+      "department_id": 6,
+      "club_id": 1,
+      "department_name": "Ban Thành viên",
+      "description": "Quản lý hồ sơ, gắn kết thành viên và tuyển thành viên mới",
+      "active_flag": 1,
+      "created_at": "2026-08-24T13:57:40"
+    },
+    {
+      "department_id": 7,
+      "club_id": 2,
+      "department_name": "Ban chủ nhiệm",
+      "description": "Ban điều hành chung và đại diện câu lạc bộ Tiếng Anh",
+      "active_flag": 1,
+      "created_at": "2026-08-24T13:57:40"
+    },
+    {
+      "department_id": 8,
+      "club_id": 2,
+      "department_name": "Ban Học thuật",
+      "description": "Phụ trách nội dung học thuật tiếng Anh và tổ chức thảo luận chuyên đề",
+      "active_flag": 1,
+      "created_at": "2026-08-24T13:57:40"
+    },
+    {
+      "department_id": 9,
+      "club_id": 2,
+      "department_name": "Ban Tài chính",
+      "description": "Quản lý ngân quỹ và thu chi câu lạc bộ",
+      "active_flag": 1,
+      "created_at": "2026-08-24T13:57:40"
+    },
+    {
+      "department_id": 10,
+      "club_id": 2,
+      "department_name": "Ban Thành viên",
+      "description": "Tiếp nhận và quản lý hồ sơ thành viên câu lạc bộ",
+      "active_flag": 1,
       "created_at": "2026-08-24T13:57:40"
     }
   ],

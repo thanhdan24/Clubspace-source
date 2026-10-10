@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Plus,
   Download,
@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Sheet,
   SheetContent,
@@ -66,7 +67,17 @@ import {
   type Field,
 } from "./shared";
 import { actionLabel } from "./dashboard";
-const memberStatuses = ["ACTIVE", "PAUSED", "LEFT"];
+export const memberStatuses = ["ACTIVE", "PAUSED", "LEFT"];
+export const clubPositions = [
+  "Thành viên",
+  "Chủ nhiệm",
+  "Phó chủ nhiệm",
+  "Trưởng ban",
+  "Phó ban",
+  "Thủ quỹ",
+  "Cán bộ / Ủy viên",
+  "Cộng tác viên",
+];
 const rowName = (r: Row, i: number) => (
   <div className="person-cell">
     <Avatar name={r.full_name} index={i} />
@@ -93,15 +104,56 @@ function MemberDetail({ id, onClose }: any) {
               <>
                 <div className="profile-heading">
                   <Avatar name={r.data.user.full_name} />
-                  <h2>{r.data.user.full_name}</h2>
+                  <div>
+                    <h2>{r.data.user.full_name}</h2>
+                    <span className="text-sm text-muted-foreground">
+                      {r.data.member.position_name || "Thành viên"}
+                      {r.data.member.department_name
+                        ? ` · ${r.data.member.department_name}`
+                        : ""}
+                    </span>
+                  </div>
                   <Badge value={r.data.member.member_status} />
                 </div>
+                {r.data.member.member_status === "PAUSED" && (
+                  <div className="p-3 my-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                    <Clock size={16} className="shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="block font-medium">
+                        Thành viên đang tạm ngưng sinh hoạt
+                      </strong>
+                      <span className="text-muted-foreground">
+                        Tạm thời ngừng tham gia hoạt động và biểu quyết trong CLB.
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {r.data.member.member_status === "LEFT" && (
+                  <div className="p-3 my-3 bg-rose-500/10 border border-rose-500/20 rounded-lg text-xs text-rose-700 dark:text-rose-300 flex items-start gap-2">
+                    <LogOut size={16} className="shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="block font-medium">
+                        Thành viên đã rời câu lạc bộ
+                      </strong>
+                      <span>
+                        Chính thức thôi sinh hoạt
+                        {r.data.member.leave_date
+                          ? ` từ ngày ${dateText(r.data.member.leave_date)}`
+                          : ""}
+                        .
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <dl className="details-list">
                   {[
                     ["Mã thành viên", r.data.member.member_code],
-                    ["Ban / nhóm", r.data.member.department_name],
-                    ["Chức vụ", r.data.member.position_name],
+                    ["Ban / nhóm", r.data.member.department_name || "Chưa phân ban"],
+                    ["Chức vụ", r.data.member.position_name || "Thành viên"],
                     ["Ngày gia nhập", dateText(r.data.member.join_date)],
+                    ...(r.data.member.leave_date
+                      ? [["Ngày rời CLB", dateText(r.data.member.leave_date)]]
+                      : []),
                     ["Email", r.data.user.email],
                     ["Điện thoại", r.data.user.phone],
                     ["Khoa", r.data.user.faculty],
@@ -144,12 +196,35 @@ export function JoinRequestsSection({
 }: {
   hideTitle?: boolean;
 }) {
-  const { club, mutate, refresh } = useApp();
+  const { club, mutate, refresh, navigate } = useApp();
   const reqFilter = useFilters();
   const reqResource = useResource("join-requests?" + reqFilter.query);
+  const options = useResource("options");
   const [approveModal, setApproveModal] = useState<Row | null>(null);
   const [rejectModal, setRejectModal] = useState<Row | null>(null);
   const [selectedDept, setSelectedDept] = useState("Ban Thành viên");
+  const [selectedPosition, setSelectedPosition] = useState("Thành viên");
+  const [customDept, setCustomDept] = useState("");
+  const [isCreatingNewDept, setIsCreatingNewDept] = useState(false);
+
+  const activeDepts = useMemo(() => {
+    return (options.data?.departments || []).filter(
+      (d: any) => d.active_flag !== 0,
+    );
+  }, [options.data?.departments]);
+
+  useEffect(() => {
+    if (approveModal) {
+      setIsCreatingNewDept(false);
+      setCustomDept("");
+      setSelectedPosition("Thành viên");
+      if (activeDepts.length > 0) {
+        setSelectedDept(activeDepts[0].department_name);
+      } else {
+        setSelectedDept("Ban Thành viên");
+      }
+    }
+  }, [approveModal, activeDepts]);
 
   return (
     <>
@@ -344,32 +419,98 @@ export function JoinRequestsSection({
                 </div>
               )}
               <div className="field">
-                <label htmlFor="dept-select">Phân ban / nhóm sinh hoạt</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="dept-select" className="font-semibold text-sm">
+                    Phân ban / nhóm sinh hoạt
+                  </label>
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline font-medium"
+                    onClick={() => setIsCreatingNewDept(!isCreatingNewDept)}
+                  >
+                    {isCreatingNewDept ? "← Chọn từ ban có sẵn" : "+ Tạo ban / nhóm mới"}
+                  </button>
+                </div>
+                {isCreatingNewDept ? (
+                  <div>
+                    <Input
+                      placeholder="Nhập tên ban / nhóm mới cho CLB..."
+                      value={customDept}
+                      onChange={(e: any) => setCustomDept(e.target.value)}
+                      maxLength={100}
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Ban này sẽ được tự động lưu vào cơ sở dữ liệu CLB khi bạn duyệt.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <SelectBox
+                      label="Chọn ban / nhóm"
+                      value={selectedDept}
+                      onChange={setSelectedDept}
+                      options={
+                        activeDepts.length > 0
+                          ? activeDepts.map((d: any) => ({
+                              value: d.department_name,
+                              label: `${d.department_name}${d.description ? ` (${d.description})` : ""}`,
+                            }))
+                          : [
+                              {
+                                value: "Ban Thành viên",
+                                label: "Ban Thành viên (Chung)",
+                              },
+                              {
+                                value: "Ban Kỹ thuật",
+                                label: "Ban Kỹ thuật / Dự án",
+                              },
+                              {
+                                value: "Ban Truyền thông",
+                                label: "Ban Truyền thông & Báo chí",
+                              },
+                              {
+                                value: "Ban Sự kiện",
+                                label: "Ban Sự kiện & Hoạt động",
+                              },
+                              {
+                                value: "Ban Tài chính",
+                                label: "Ban Tài chính",
+                              },
+                            ]
+                      }
+                    />
+                    <div className="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
+                      <span>Dữ liệu lấy từ danh mục ban / nhóm của CLB.</span>
+                      <button
+                        type="button"
+                        className="text-primary hover:underline font-medium inline-flex items-center gap-1"
+                        onClick={() => {
+                          setApproveModal(null);
+                          navigate("departments");
+                        }}
+                      >
+                        Quản lý ban / nhóm →
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="field mt-3">
+                <label className="font-semibold text-sm mb-1.5 block">
+                  Chức vụ khi gia nhập
+                </label>
                 <SelectBox
-                  label="Chọn ban / nhóm"
-                  value={selectedDept}
-                  onChange={setSelectedDept}
-                  options={[
-                    {
-                      value: "Ban Thành viên",
-                      label: "Ban Thành viên (Chung)",
-                    },
-                    {
-                      value: "Ban Chuyên môn",
-                      label: "Ban Chuyên môn / Học thuật",
-                    },
-                    { value: "Ban Kỹ thuật", label: "Ban Kỹ thuật / Dự án" },
-                    {
-                      value: "Ban Truyền thông",
-                      label: "Ban Truyền thông & Báo chí",
-                    },
-                    { value: "Ban Sự kiện", label: "Ban Sự kiện & Hoạt động" },
-                    {
-                      value: "Ban Đối ngoại",
-                      label: "Ban Đối ngoại & Tài trợ",
-                    },
-                  ]}
+                  label="Chọn chức vụ"
+                  value={selectedPosition}
+                  onChange={setSelectedPosition}
+                  options={clubPositions.map((pos) => ({
+                    value: pos,
+                    label: pos,
+                  }))}
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Mặc định phân công chức vụ "Thành viên" khi mới gia nhập câu lạc bộ.
+                </p>
               </div>
             </div>
             <div className="editor-footer">
@@ -378,15 +519,25 @@ export function JoinRequestsSection({
               </Button>
               <Button
                 onClick={async () => {
+                  const deptToAssign = isCreatingNewDept
+                    ? customDept.trim()
+                    : selectedDept;
+                  if (isCreatingNewDept && !deptToAssign) {
+                    toast.error("Vui lòng nhập tên ban / nhóm mới.");
+                    return;
+                  }
                   await mutate(
                     "join-requests/" + approveModal.request_id,
                     {
                       status: "APPROVED",
-                      department_name: selectedDept,
+                      department_name: deptToAssign,
+                      position_name: selectedPosition || "Thành viên",
                     },
                     "PATCH",
                   );
-                  toast.success("Đã duyệt sinh viên vào câu lạc bộ!");
+                  toast.success(
+                    `Đã duyệt và phân sinh viên vào "${deptToAssign}"!`,
+                  );
                   setApproveModal(null);
                   refresh();
                 }}
@@ -423,13 +574,33 @@ export function JoinRequestsSection({
   );
 }
 
-export function Members() {
-  const { can, mutate, club, refresh } = useApp(),
-    f = useFilters(),
-    r = useResource("members?" + f.query),
-    options = useResource("options");
+export function Members({
+  initialTab = "members",
+}: {
+  initialTab?: "members" | "requests";
+} = {}) {
+  const { can, mutate, club, refresh, route } = useApp();
+  const urlDept = useMemo(() => {
+    if (typeof window !== "undefined") {
+      const currentRoute =
+        (typeof route === "string" ? route : "") ||
+        (window.location.hash ? window.location.hash.slice(1) : "");
+      const match = currentRoute.match(/[?&]department=([^&]+)/);
+      return match ? decodeURIComponent(match[1]) : "";
+    }
+    return "";
+  }, [route]);
+  const [deptFilter, setDeptFilter] = useState(urlDept);
+  useEffect(() => {
+    if (urlDept) setDeptFilter(urlDept);
+  }, [urlDept]);
+
+  const f = useFilters();
+  const membersQuery = `${f.query}${deptFilter ? `&department=${encodeURIComponent(deptFilter)}` : ""}`;
+  const r = useResource("members?" + membersQuery);
+  const options = useResource("options");
   const isOfficerOrLeader = can("OFFICER", "LEADER");
-  const [tab, setTab] = useState<"members" | "requests">("members");
+  const [tab, setTab] = useState<"members" | "requests">(initialTab);
   const pendingRequests = useResource(
     isOfficerOrLeader ? "join-requests?status=PENDING" : null,
   );
@@ -439,54 +610,130 @@ export function Members() {
         : null,
     ),
     [view, setView] = useState<number | null>(null);
-  const fields: Field[] = [
-    ...(!editing?.club_member_id
-      ? [
-          {
-            name: "user_id",
-            label: "Tài khoản thành viên",
-            type: "select",
-            required: true,
-            options: [
-              { value: "", label: "Chọn tài khoản" },
-              ...(options.data?.users || []).map((u: Row) => ({
-                value: u.user_id,
-                label: u.full_name + " · " + u.username,
-              })),
-            ],
-          },
-        ]
-      : []),
-    {
-      name: "member_code",
-      label: "Mã thành viên",
-      required: true,
-      maxLength: 30,
-    },
-    { name: "join_date", label: "Ngày gia nhập", type: "date", required: true },
-    { name: "department_name", label: "Ban / nhóm", maxLength: 120 },
-    { name: "position_name", label: "Chức vụ", maxLength: 120 },
-    ...(editing?.club_member_id
-      ? [
-          {
-            name: "member_status",
-            label: "Trạng thái",
-            type: "select",
-            options: opts(memberStatuses),
-            required: true,
-          },
-          { name: "leave_date", label: "Ngày rời CLB", type: "date" },
-          {
-            name: "reason",
-            label: "Lý do thay đổi trạng thái",
-            type: "textarea",
-            wide: true,
-            help: "Bắt buộc khi đổi trạng thái sinh hoạt.",
-            maxLength: 500,
-          },
-        ]
-      : []),
-  ];
+
+  const activeDepts = useMemo(() => {
+    return (options.data?.departments || []).filter(
+      (d: any) => d.active_flag !== 0,
+    );
+  }, [options.data?.departments]);
+
+  const getFields = (values: Row): Field[] => {
+    const isNew = !editing?.club_member_id;
+    const currentStatus =
+      values.member_status || editing?.member_status || "ACTIVE";
+    const isLeft = currentStatus === "LEFT";
+    const statusChanged =
+      editing?.club_member_id && currentStatus !== editing.member_status;
+
+    return [
+      ...(isNew
+        ? [
+            {
+              name: "user_id",
+              label: "Tài khoản thành viên",
+              type: "select",
+              required: true,
+              options: [
+                { value: "", label: "Chọn tài khoản" },
+                ...(options.data?.users || []).map((u: Row) => ({
+                  value: u.user_id,
+                  label: u.full_name + " · " + u.username,
+                })),
+              ],
+            },
+          ]
+        : []),
+      {
+        name: "member_code",
+        label: "Mã thành viên",
+        placeholder: options.data?.next_member_code || "Tự động sinh theo quy định CLB",
+        help: isNew
+          ? `Mã thành viên được hệ thống tự động sinh và tăng dần (${options.data?.next_member_code || "theo tiền tố " + (options.data?.member_code_prefix || "CLB")}) theo quy định của Ban chủ nhiệm.`
+          : "Mã định danh thành viên trong câu lạc bộ.",
+        disabled: true,
+        readOnly: true,
+        maxLength: 30,
+      },
+      {
+        name: "join_date",
+        label: "Ngày gia nhập",
+        type: "date",
+        required: true,
+      },
+      {
+        name: "department_name",
+        label: "Ban / nhóm",
+        type: "select",
+        options: [
+          { value: "", label: "Chưa phân ban / Không thuộc ban nào" },
+          ...activeDepts.map((d: any) => ({
+            value: d.department_name,
+            label: d.department_name,
+          })),
+          ...(values.department_name &&
+          !activeDepts.some(
+            (d: any) => d.department_name === values.department_name,
+          )
+            ? [{ value: values.department_name, label: values.department_name }]
+            : []),
+        ],
+        maxLength: 120,
+      },
+      {
+        name: "position_name",
+        label: "Chức vụ",
+        type: "select",
+        required: true,
+        options: [
+          ...clubPositions.map((p) => ({ value: p, label: p })),
+          ...(values.position_name &&
+          !clubPositions.includes(values.position_name)
+            ? [{ value: values.position_name, label: values.position_name }]
+            : []),
+        ],
+      },
+      ...(!isNew
+        ? [
+            {
+              name: "member_status",
+              label: "Trạng thái sinh hoạt",
+              type: "select",
+              options: opts(memberStatuses),
+              required: true,
+              help: isLeft
+                ? "Thành viên rời CLB sẽ được ghi nhận và vô hiệu hóa vai trò cán bộ trong CLB."
+                : currentStatus === "PAUSED"
+                  ? "Tạm ngưng sinh hoạt tại CLB (không tham gia biểu quyết/hoạt động)."
+                  : "Đang sinh hoạt bình thường tại câu lạc bộ.",
+            },
+            ...(isLeft
+              ? [
+                  {
+                    name: "leave_date",
+                    label: "Ngày rời CLB",
+                    type: "date",
+                    required: true,
+                    help: "Bắt buộc khi trạng thái là 'Đã rời CLB'.",
+                  },
+                ]
+              : []),
+            {
+              name: "reason",
+              label: statusChanged
+                ? `Lý do đổi sang "${labels[currentStatus] || currentStatus}"`
+                : "Lý do thay đổi trạng thái",
+              type: "textarea",
+              wide: true,
+              required: statusChanged,
+              help: statusChanged
+                ? "Bắt buộc nhập lý do khi thay đổi trạng thái sinh hoạt."
+                : "Ghi chú thêm nếu cần cập nhật thông tin.",
+              maxLength: 500,
+            },
+          ]
+        : []),
+    ];
+  };
   return (
     <>
       <PageTitle
@@ -494,7 +741,7 @@ export function Members() {
         title="Những người làm nên câu lạc bộ"
         description="Hồ sơ, ban nhóm và hành trình sinh hoạt của từng thành viên."
       >
-        <ExportButton path={"members?" + f.query} />
+        <ExportButton path={"members?" + membersQuery} />
         {can("OFFICER") && (
           <Button
             onClick={() => setEditing({ join_date: localNow().slice(0, 10) })}
@@ -523,7 +770,23 @@ export function Members() {
       )}
       {tab === "members" ? (
         <section className="panel">
-          <Filters {...f} statuses={memberStatuses} />
+          <Filters {...f} statuses={memberStatuses}>
+            <SelectBox
+              label="Lọc ban / nhóm"
+              value={deptFilter}
+              onChange={(v: string) => {
+                setDeptFilter(v);
+                f.setPage(1);
+              }}
+              options={[
+                { value: "", label: "Tất cả ban / nhóm" },
+                ...activeDepts.map((d: any) => ({
+                  value: d.department_name,
+                  label: d.department_name,
+                })),
+              ]}
+            />
+          </Filters>
           <LoadState {...r} variant="table">
             <DataTable
               data={r.data}
@@ -532,17 +795,54 @@ export function Members() {
               columns={[
                 { key: "name", title: "THÀNH VIÊN", render: rowName },
                 { key: "member_code", title: "MÃ THÀNH VIÊN" },
-                { key: "department_name", title: "BAN / NHÓM" },
-                { key: "position_name", title: "CHỨC VỤ" },
+                {
+                  key: "department_name",
+                  title: "BAN / NHÓM",
+                  render: (r: Row) =>
+                    r.department_name ? (
+                      <span className="font-medium text-foreground">
+                        {r.department_name}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground italic text-xs">
+                        Chưa phân ban
+                      </span>
+                    ),
+                },
+                {
+                  key: "position_name",
+                  title: "CHỨC VỤ",
+                  render: (r: Row) => (
+                    <div>
+                      <span className="font-medium text-foreground">
+                        {r.position_name || "Thành viên"}
+                      </span>
+                      {r.member_status === "LEFT" && (
+                        <span className="block text-[11px] text-muted-foreground">
+                          (Cựu thành viên)
+                        </span>
+                      )}
+                    </div>
+                  ),
+                },
                 {
                   key: "join_date",
-                  title: "GIA NHẬP",
-                  render: (r) => dateText(r.join_date),
+                  title: "THỜI GIAN",
+                  render: (r: Row) => (
+                    <div className="text-xs space-y-0.5">
+                      <div>Gia nhập: {dateText(r.join_date)}</div>
+                      {r.leave_date && (
+                        <div className="text-muted-foreground">
+                          Rời: {dateText(r.leave_date)}
+                        </div>
+                      )}
+                    </div>
+                  ),
                 },
                 {
                   key: "member_status",
                   title: "TRẠNG THÁI",
-                  render: (r) => <Badge value={r.member_status} />,
+                  render: (r: Row) => <Badge value={r.member_status} />,
                 },
                 {
                   key: "actions",
@@ -582,29 +882,248 @@ export function Members() {
           title={
             editing.club_member_id ? "Cập nhật thành viên" : "Thêm thành viên"
           }
-          fields={fields}
-          initial={{ join_date: localNow().slice(0, 10), ...editing }}
+          fields={getFields}
+          initial={{
+            join_date: localNow().slice(0, 10),
+            position_name: "Thành viên",
+            member_code:
+              editing.club_member_id
+                ? editing.member_code
+                : options.data?.next_member_code || "",
+            ...editing,
+            leave_date:
+              editing?.leave_date ||
+              (editing?.member_status === "LEFT"
+                ? localNow().slice(0, 10)
+                : ""),
+          }}
           onClose={() => setEditing(null)}
-          onSave={(v: Row) =>
-            mutate(
+          onSave={(v: Row) => {
+            const isLeft = v.member_status === "LEFT";
+            return mutate(
               editing.club_member_id
                 ? "members/" + editing.club_member_id
                 : "members",
               {
                 ...v,
-                ...(editing.club_member_id
-                  ? { leave_date: v.leave_date || null }
-                  : {}),
+                member_code: editing.club_member_id
+                  ? v.member_code
+                  : options.data?.next_member_code || "AUTO",
+                position_name: v.position_name || "Thành viên",
+                leave_date: isLeft
+                  ? v.leave_date || localNow().slice(0, 10)
+                  : null,
+                reason:
+                  v.reason ||
+                  (editing.club_member_id &&
+                  v.member_status !== editing.member_status
+                    ? `Chuyển trạng thái sang ${labels[v.member_status] || v.member_status}`
+                    : undefined),
               },
               editing.club_member_id ? "PATCH" : "POST",
-            )
-          }
+            );
+          }}
         />
       )}{" "}
       {view && <MemberDetail id={view} onClose={() => setView(null)} />}
     </>
   );
 }
+
+export function Departments() {
+  const { mutate, can, navigate } = useApp(),
+    r = useResource("departments"),
+    [editing, setEditing] = useState<Row | null>(null),
+    [confirmToggle, setConfirmToggle] = useState<Row | null>(null),
+    [confirmDelete, setConfirmDelete] = useState<Row | null>(null);
+
+  const isLeaderOrOfficer = can("LEADER", "OFFICER");
+
+  return (
+    <>
+      <PageTitle
+        eyebrow="CƠ CẤU TỔ CHỨC"
+        title="Ban / Nhóm câu lạc bộ"
+        description="Chủ nhiệm và cán bộ có thể khởi tạo, quản lý các ban nhóm và phân bổ thành viên trong CLB."
+      >
+        {isLeaderOrOfficer && (
+          <Button onClick={() => setEditing({})}>
+            <Plus />
+            Thêm ban / nhóm
+          </Button>
+        )}
+      </PageTitle>
+      <section className="panel">
+        <LoadState {...r} variant="table">
+          <DataTable
+            data={r.data}
+            columns={[
+              {
+                key: "department_name",
+                title: "TÊN BAN / NHÓM",
+                render: (row: Row) => (
+                  <div>
+                    <strong className="block font-medium">
+                      {row.department_name}
+                    </strong>
+                    {row.description && (
+                      <span className="text-xs text-muted-foreground line-clamp-1">
+                        {row.description}
+                      </span>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                key: "member_count",
+                title: "THÀNH VIÊN",
+                render: (row: Row) => (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="p-0 h-auto font-medium text-primary"
+                    onClick={() =>
+                      navigate(
+                        "members?department=" +
+                          encodeURIComponent(row.department_name),
+                      )
+                    }
+                  >
+                    {row.member_count ?? 0} thành viên
+                  </Button>
+                ),
+              },
+              {
+                key: "active_flag",
+                title: "TRẠNG THÁI",
+                render: (row: Row) => (
+                  <Badge value={row.active_flag ? "ACTIVE" : "INACTIVE"} />
+                ),
+              },
+              {
+                key: "created_at",
+                title: "NGÀY TẠO",
+                render: (row: Row) => dateText(row.created_at),
+              },
+              {
+                key: "action",
+                title: "THAO TÁC",
+                render: (row: Row) => (
+                  <div className="row-actions">
+                    {isLeaderOrOfficer && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditing(row)}
+                      >
+                        <Pencil size={15} />
+                        Sửa
+                      </Button>
+                    )}
+                    {isLeaderOrOfficer && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setConfirmToggle(row)}
+                      >
+                        {row.active_flag ? "Ngừng hoạt động" : "Kích hoạt"}
+                      </Button>
+                    )}
+                    {can("LEADER") && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setConfirmDelete(row)}
+                      >
+                        <Trash2 size={15} />
+                        Xóa
+                      </Button>
+                    )}
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </LoadState>
+      </section>
+
+      {editing && (
+        <Editor
+          title={
+            editing.department_id ? "Sửa ban / nhóm" : "Thêm ban / nhóm mới"
+          }
+          fields={[
+            {
+              name: "department_name",
+              label: "Tên ban / nhóm",
+              required: true,
+              maxLength: 100,
+            },
+            {
+              name: "description",
+              label: "Mô tả vai trò / chức năng",
+              type: "textarea",
+              maxLength: 500,
+            },
+          ]}
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSave={(v: Row) =>
+            mutate(
+              editing.department_id
+                ? "departments/" + editing.department_id
+                : "departments",
+              v,
+              editing.department_id ? "PATCH" : "POST",
+            )
+          }
+        />
+      )}
+
+      {confirmToggle && (
+        <Confirm
+          title={
+            (confirmToggle.active_flag ? "Ngừng hoạt động " : "Kích hoạt ") +
+            confirmToggle.department_name +
+            "?"
+          }
+          description={
+            confirmToggle.active_flag
+              ? "Ban / nhóm này sẽ ngưng hiển thị khi tuyển hoặc phân ban cho thành viên mới."
+              : "Ban / nhóm này sẽ sẵn sàng tiếp nhận và phân công thành viên."
+          }
+          onClose={() => setConfirmToggle(null)}
+          onConfirm={() =>
+            mutate(
+              "departments/" + confirmToggle.department_id,
+              {
+                active_flag: confirmToggle.active_flag ? 0 : 1,
+              },
+              "PATCH",
+            )
+          }
+        />
+      )}
+
+      {confirmDelete && (
+        <Confirm
+          title={`Xóa ban / nhóm "${confirmDelete.department_name}"?`}
+          description={
+            Number(confirmDelete.member_count) > 0
+              ? `Ban này đang có ${confirmDelete.member_count} thành viên đang hoạt động. Vui lòng chuyển họ sang ban khác trước khi xóa.`
+              : "Thao tác này sẽ xóa ban / nhóm khỏi danh sách của câu lạc bộ."
+          }
+          onClose={() => setConfirmDelete(null)}
+          onConfirm={() =>
+            mutate("departments/" + confirmDelete.department_id, {}, "DELETE")
+          }
+        />
+      )}
+    </>
+  );
+}
+
 export function Accounts() {
   const { mutate } = useApp(),
     f = useFilters(),
@@ -1025,7 +1544,8 @@ export function Clubs() {
 }
 export function ClubSettings() {
   const { mutate, reloadSession } = useApp(),
-    r = useResource("club");
+    r = useResource("club"),
+    options = useResource("options");
   const [edit, setEdit] = useState(false);
   return (
     <>
@@ -1046,6 +1566,17 @@ export function ClubSettings() {
               <div>
                 <dt>Mã câu lạc bộ</dt>
                 <dd>{r.data.club_code}</dd>
+              </div>
+              <div>
+                <dt>Quy tắc mã thành viên</dt>
+                <dd>
+                  <span className="font-semibold text-primary">
+                    {r.data.member_code_prefix || options.data?.member_code_prefix || "MB"}
+                  </span>
+                  <span className="text-muted text-xs ml-2">
+                    (Mã tiếp theo dự kiến: {options.data?.next_member_code || `${r.data.member_code_prefix || "MB"}001`})
+                  </span>
+                </dd>
               </div>
               <div>
                 <dt>Ngày thành lập</dt>
@@ -1073,6 +1604,13 @@ export function ClubSettings() {
               label: "Tên câu lạc bộ",
               required: true,
               maxLength: 200,
+            },
+            {
+              name: "member_code_prefix",
+              label: "Tiền tố mã thành viên",
+              placeholder: "Ví dụ: CNTT, TA, MB...",
+              help: "Tiền tố do Ban chủ nhiệm quy định để hệ thống tự động sinh và đánh số tăng dần cho mã thành viên mới (VD: CNTT001, CNTT002,...).",
+              maxLength: 20,
             },
             { name: "founded_date", label: "Ngày thành lập", type: "date" },
             {
@@ -1254,18 +1792,44 @@ export function Profile() {
   );
 }
 export function Audit() {
-  const f = useFilters(),
-    r = useResource("audit?" + f.query);
+  const { can, session } = useApp();
+  const f = useFilters();
+  const [clubFilter, setClubFilter] = useState("all");
+  const query = `${f.query}${can("ADMIN") ? `&clubFilter=${clubFilter}` : ""}`;
+  const r = useResource("audit?" + query);
   const [detail, setDetail] = useState<Row | null>(null);
   return (
     <>
       <PageTitle
         eyebrow="TRUY VẾT"
         title="Nhật ký hoạt động"
-        description="Lịch sử thao tác và những thay đổi quan trọng trong câu lạc bộ."
+        description={
+          can("ADMIN")
+            ? "Toàn bộ lịch sử thao tác và thay đổi quan trọng trên hệ thống."
+            : "Lịch sử thao tác và những thay đổi quan trọng trong câu lạc bộ."
+        }
       />
       <section className="panel">
-        <Filters q={f.q} setQ={f.setQ} />
+        <Filters q={f.q} setQ={f.setQ}>
+          {can("ADMIN") && (session?.clubs?.length ?? 0) > 0 && (
+            <SelectBox
+              label="Phạm vi câu lạc bộ"
+              value={clubFilter}
+              onChange={(v: string) => {
+                setClubFilter(v);
+                f.setPage(1);
+              }}
+              options={[
+                { value: "all", label: "Tất cả CLB & Hệ thống" },
+                { value: "system", label: "Chỉ hoạt động Hệ thống (Admin)" },
+                ...(session?.clubs || []).map((c: any) => ({
+                  value: String(c.club_id),
+                  label: c.club_name,
+                })),
+              ]}
+            />
+          )}
+        </Filters>
         <LoadState {...r} variant="table">
           <DataTable
             data={r.data}
@@ -1277,7 +1841,38 @@ export function Audit() {
                 title: "THỜI GIAN",
                 render: (r) => dateText(r.created_at, true),
               },
-              { key: "full_name", title: "NGƯỜI THỰC HIỆN" },
+              ...(can("ADMIN")
+                ? [
+                    {
+                      key: "club_name",
+                      title: "CÂU LẠC BỘ",
+                      render: (r: any) =>
+                        r.club_name ? (
+                          <span className="font-medium text-xs">
+                            {r.club_name}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-xs italic">
+                            Hệ thống chung
+                          </span>
+                        ),
+                    },
+                  ]
+                : []),
+              {
+                key: "full_name",
+                title: "NGƯỜI THỰC HIỆN",
+                render: (r: any) => (
+                  <div>
+                    <strong>{r.full_name || "—"}</strong>
+                    {r.username && (
+                      <span className="text-muted-foreground text-xs block">
+                        @{r.username}
+                      </span>
+                    )}
+                  </div>
+                ),
+              },
               {
                 key: "action_code",
                 title: "HOẠT ĐỘNG",

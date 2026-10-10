@@ -9,17 +9,6 @@ import { Prisma } from "@prisma/client";
 const port = Number(process.env.PORT || 3001),
   host = process.env.HOST || "127.0.0.1";
 
-try {
-  await prisma.$connect();
-  await prisma.$queryRawUnsafe("SELECT 1 AS ok");
-  console.log(
-    "[Supabase/Prisma] Đã kết nối thành công tới Supabase (PostgreSQL).",
-  );
-} catch (err: any) {
-  console.error("[Supabase/Prisma] Lỗi kết nối database:", err.message);
-  console.error("Vui lòng kiểm tra lại cấu hình DATABASE_URL trong tệp .env.");
-  throw err;
-}
 
 const uploadRoot = path.resolve(process.env.UPLOAD_DIR || "private-uploads");
 await fs.mkdir(uploadRoot, { recursive: true });
@@ -54,17 +43,14 @@ const mime: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-class RollbackError extends Error {
-  constructor(public response: Response) {
-    super("Rollback");
-  }
-}
 
 const server = http.createServer(async (req, res) => {
   try {
     if ((req.url || "").startsWith("/api/")) {
-      const origin = process.env.APP_ORIGIN || `http://${req.headers.host}`;
-      const url = new URL(req.url!, origin).toString();
+      const proto = (req.headers["x-forwarded-proto"] as string) || "http";
+      const host = req.headers.host || "127.0.0.1:3001";
+      const requestOrigin = `${proto}://${host}`;
+      const url = new URL(req.url!, requestOrigin).toString();
       const chunks: Buffer[] = [];
       let size = 0;
       for await (const chunk of req) {
@@ -88,32 +74,12 @@ const server = http.createServer(async (req, res) => {
           : Buffer.concat(chunks),
       });
 
-      let response: Response;
-      try {
-        response = await prisma.$transaction(
-          async (tx) => {
-            const db = new PrismaDatabase(tx);
-            const result = await handleApi(request, db, {
-              ...process.env,
-              DEMO_MODE: "false",
-              BUCKET: bucket,
-            });
-            if (result.status >= 400 && !url.includes("/auth/login")) {
-              throw new RollbackError(result);
-            }
-            return result;
-          },
-          {
-            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-          },
-        );
-      } catch (e: any) {
-        if (e instanceof RollbackError) {
-          response = e.response;
-        } else {
-          throw e;
-        }
-      }
+      const db = new PrismaDatabase(prisma);
+      const response = await handleApi(request, db, {
+        ...process.env,
+        DEMO_MODE: "false",
+        BUCKET: bucket,
+      });
 
       res.writeHead(response.status, Object.fromEntries(response.headers));
       if (response.body) Readable.fromWeb(response.body as any).pipe(res);
@@ -160,11 +126,30 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(port, host, () =>
+server.listen(port, host, () => {
   console.log(
     `Clubspace server đang chạy trên ${host}:${port} (Supabase PostgreSQL / Prisma)`,
-  ),
-);
+  );
+  (async () => {
+    try {
+      const t0 = Date.now();
+      await prisma.$queryRawUnsafe("SELECT 1 AS ok");
+      console.log(
+        `[Supabase/Prisma] Đã kết nối thành công tới Supabase (${Date.now() - t0}ms). Sẵn sàng phục vụ yêu cầu!`,
+      );
+      // Keep-alive heartbeat: ping DB every 25s so Supabase pooler stays warm and active
+      setInterval(async () => {
+        try {
+          await prisma.$queryRawUnsafe("SELECT 1 AS heartbeat");
+        } catch {
+          // ignore background heartbeat transient errors
+        }
+      }, 25000).unref();
+    } catch (err: any) {
+      console.warn("[Supabase/Prisma] Đang đợi kết nối nền:", err?.message || err);
+    }
+  })();
+});
 
 for (const event of ["SIGINT", "SIGTERM"])
   process.on(event, async () => {

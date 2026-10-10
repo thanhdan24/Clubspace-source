@@ -10,6 +10,7 @@ export async function seedPreview(db: Database, env: any) {
     "USERS",
     "ROLES",
     "CLUBS",
+    "CLUB_DEPARTMENTS",
     "USER_ROLES",
     "CLUB_MEMBERS",
     "MEMBER_STATUS_HISTORY",

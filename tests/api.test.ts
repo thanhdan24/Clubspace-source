@@ -1468,6 +1468,17 @@ test("Route verification: all 16 application routes work correctly with appropri
     ),
   );
 
+  // Route 8b: Departments (departments)
+  const rDepartments = await call(
+    "LEADER",
+    "departments",
+    "GET",
+    undefined,
+    1,
+  );
+  assert.equal(rDepartments.status, 200);
+  assert.ok(Array.isArray(rDepartments.data.rows));
+
   // Route 9: Reports (reports?type=events, reports?type=finance, reports?type=members)
   const rRepFinance = await call(
     "LEADER",
@@ -1868,3 +1879,341 @@ test("Notification lifecycle: trigger, list, mark read, mark all read, and delet
     ),
   );
 });
+
+test("Club department lifecycle and new member department assignment", async () => {
+  // 1. Leader lists departments of Club 1
+  const listRes = await call("LEADER", "departments", "GET", undefined, 1);
+  assert.equal(listRes.status, 200);
+  assert.ok(Array.isArray(listRes.data.rows));
+  assert.ok(listRes.data.rows.length >= 6);
+
+  // 2. Member cannot create department (403)
+  const memberCreate = await call(
+    "MEMBER",
+    "departments",
+    "POST",
+    { department_name: "Ban AI & Dữ liệu", description: "Nghiên cứu AI" },
+    1,
+  );
+  assert.equal(memberCreate.status, 403);
+
+  // 3. Leader creates a new department for Club 1
+  const createRes = await call(
+    "LEADER",
+    "departments",
+    "POST",
+    {
+      department_name: "Ban AI & Dữ liệu",
+      description: "Nghiên cứu AI và dữ liệu lớn",
+    },
+    1,
+  );
+  assert.equal(createRes.status, 201);
+  assert.ok(createRes.data.department_id);
+  const newDeptId = createRes.data.department_id;
+
+  // 4. Duplicate department name in Club 1 is rejected (409)
+  const dupRes = await call(
+    "LEADER",
+    "departments",
+    "POST",
+    { department_name: "Ban AI & Dữ liệu" },
+    1,
+  );
+  assert.equal(dupRes.status, 409);
+
+  // 5. Options endpoint contains the newly created department
+  const optRes = await call("LEADER", "options", "GET", undefined, 1);
+  assert.equal(optRes.status, 200);
+  assert.ok(
+    optRes.data.departments.some(
+      (d: any) => d.department_name === "Ban AI & Dữ liệu",
+    ),
+  );
+
+  // 6. Update department (rename)
+  const patchRes = await call(
+    "LEADER",
+    `departments/${newDeptId}`,
+    "PATCH",
+    { department_name: "Ban Trí tuệ Nhân tạo", description: "Đổi tên ban AI" },
+    1,
+  );
+  assert.equal(patchRes.status, 200);
+
+  // 7. Test join request approval assigning applicant to this department
+  const applicant = {
+    username: "dept_applicant_" + Date.now(),
+    password: "Password@123",
+    full_name: "Nguyễn Văn AI",
+    email: "applicant_ai_" + Date.now() + "@ptit.edu.vn",
+  };
+  const regUser = await call("ADMIN", "accounts", "POST", applicant);
+  assert.equal(regUser.status, 201);
+  const applicantUserId = regUser.data.user_id;
+
+  const loginRes = await call("", "auth/login", "POST", {
+    username: applicant.username,
+    password: applicant.password,
+  });
+  assert.equal(loginRes.status, 200);
+  const userCookie = loginRes.cookie!.split(";")[0];
+
+  // Submit join request to Club 1
+  const submitReq = new Request("http://test.local/api/clubs/1/join", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: userCookie,
+    },
+    body: JSON.stringify({ message: "Muốn tham gia ban AI" }),
+  });
+  const submitRes = await (await handleApi(submitReq, db, env)).json();
+  assert.ok(submitRes.request_id);
+
+  // Leader approves join request and assigns applicant to "Ban Trí tuệ Nhân tạo"
+  const approveRes = await call(
+    "LEADER",
+    `join-requests/${submitRes.request_id}`,
+    "PATCH",
+    {
+      status: "APPROVED",
+      department_name: "Ban Trí tuệ Nhân tạo",
+      reason: "Đủ điều kiện chuyên môn",
+    },
+    1,
+  );
+  assert.equal(approveRes.status, 200);
+
+  // Verify applicant is member in that department
+  const checkMember = sql(
+    "SELECT * FROM CLUB_MEMBERS WHERE club_id=1 AND user_id=?",
+    applicantUserId,
+  );
+  assert.equal(checkMember.member_status, "ACTIVE");
+  assert.equal(checkMember.department_name, "Ban Trí tuệ Nhân tạo");
+  assert.equal(checkMember.member_code, "CNTT012");
+
+  // 8. Attempt to delete department when it has active members -> should fail (400)
+  const delFailRes = await call(
+    "LEADER",
+    `departments/${newDeptId}`,
+    "DELETE",
+    undefined,
+    1,
+  );
+  assert.equal(delFailRes.status, 400);
+
+  // 9. Move member to another department, then deleting department succeeds
+  sql(
+    "UPDATE CLUB_MEMBERS SET department_name='Ban Kỹ thuật' WHERE club_member_id=?",
+    checkMember.club_member_id,
+  );
+  const delSuccessRes = await call(
+    "LEADER",
+    `departments/${newDeptId}`,
+    "DELETE",
+    undefined,
+    1,
+  );
+  assert.equal(delSuccessRes.status, 200);
+
+  // Verify department is gone
+  const checkDeleted = sql(
+    "SELECT * FROM CLUB_DEPARTMENTS WHERE department_id=?",
+    newDeptId,
+  );
+  assert.equal(checkDeleted, undefined);
+});
+
+test("Member code auto-generation, prefix configuration by leader, and member status lifecycle", async () => {
+  // 1. Leader views club options to check current prefix and next code
+  const optRes = await call("LEADER", "options", "GET", undefined, 1);
+  assert.equal(optRes.status, 200);
+  assert.equal(optRes.data.member_code_prefix, "CNTT");
+  const expectedAutoCode = optRes.data.next_member_code;
+  assert.ok(expectedAutoCode.startsWith("CNTT"));
+
+  // 2. Leader creates new member without entering member_code -> auto-generated sequentially
+  const candidateUser = {
+    username: "newcandidate",
+    password: "Password123!",
+    full_name: "Nguyễn Văn Ứng Viên",
+    email: "ungvien@example.com",
+    account_status: "ACTIVE",
+  };
+  const regUser = await call("ADMIN", "accounts", "POST", candidateUser);
+  assert.equal(regUser.status, 201);
+  const candUserId = regUser.data.user_id;
+
+  const createMemberRes = await call(
+    "OFFICER",
+    "members",
+    "POST",
+    {
+      user_id: candUserId,
+      join_date: "2026-10-09",
+      department_name: "Ban Kỹ thuật",
+      position_name: "Cộng tác viên",
+    },
+    1,
+  );
+  assert.equal(createMemberRes.status, 201);
+  assert.equal(createMemberRes.data.member_code, expectedAutoCode);
+
+  // Verify created member in DB
+  const m1 = sql(
+    "SELECT * FROM CLUB_MEMBERS WHERE club_member_id=?",
+    createMemberRes.data.club_member_id,
+  );
+  assert.equal(m1.member_code, expectedAutoCode);
+  assert.equal(m1.position_name, "Cộng tác viên");
+  assert.equal(m1.member_status, "ACTIVE");
+
+  // Next member code should now be sequentially incremented
+  const optRes2 = await call("LEADER", "options", "GET", undefined, 1);
+  assert.ok(optRes2.data.next_member_code > expectedAutoCode);
+
+  // 3. Leader updates club member_code_prefix to "TECH"
+  const patchClubRes = await call(
+    "LEADER",
+    "club",
+    "PATCH",
+    {
+      club_name: "CLB Công nghệ Thông tin",
+      club_status: "ACTIVE",
+      member_code_prefix: "TECH",
+    },
+    1,
+  );
+  assert.equal(patchClubRes.status, 200);
+
+  // Options should now reflect new prefix "TECH" and next code "TECH001"
+  const optRes3 = await call("LEADER", "options", "GET", undefined, 1);
+  assert.equal(optRes3.data.member_code_prefix, "TECH");
+  assert.equal(optRes3.data.next_member_code, "TECH001");
+
+  // 4. Status lifecycle management:
+  // Transition ACTIVE -> PAUSED requires reason
+  const pauseNoReason = await call(
+    "LEADER",
+    `members/${m1.club_member_id}`,
+    "PATCH",
+    {
+      ...m1,
+      member_status: "PAUSED",
+      leave_date: null,
+      reason: "",
+    },
+    1,
+  );
+  assert.equal(pauseNoReason.status, 400);
+
+  const pauseWithReason = await call(
+    "LEADER",
+    `members/${m1.club_member_id}`,
+    "PATCH",
+    {
+      ...m1,
+      member_status: "PAUSED",
+      leave_date: null,
+      reason: "Bận đồ án tốt nghiệp trong 3 tháng",
+    },
+    1,
+  );
+  assert.equal(pauseWithReason.status, 200);
+
+  const mPaused = sql(
+    "SELECT * FROM CLUB_MEMBERS WHERE club_member_id=?",
+    m1.club_member_id,
+  );
+  assert.equal(mPaused.member_status, "PAUSED");
+
+  // Transition PAUSED -> LEFT requires leave_date and reason, and deactivates roles
+  const leftRes = await call(
+    "LEADER",
+    `members/${m1.club_member_id}`,
+    "PATCH",
+    {
+      ...mPaused,
+      member_status: "LEFT",
+      leave_date: "2026-10-09",
+      reason: "Đã tốt nghiệp và chuyển công tác",
+    },
+    1,
+  );
+  assert.equal(leftRes.status, 200);
+
+  const mLeft = sql(
+    "SELECT * FROM CLUB_MEMBERS WHERE club_member_id=?",
+    m1.club_member_id,
+  );
+  assert.equal(mLeft.member_status, "LEFT");
+  assert.equal(mLeft.leave_date, "2026-10-09");
+
+  // Check roles are deactivated
+  const rolesDeactivated = sql(
+    "SELECT COUNT(*) as n FROM USER_ROLES WHERE user_id=? AND club_id=1 AND active_flag=1",
+    candUserId,
+  );
+  assert.equal(Number(rolesDeactivated.n), 0);
+
+  // Transition LEFT -> ACTIVE reactivates MEMBER role
+  const reactivateRes = await call(
+    "LEADER",
+    `members/${m1.club_member_id}`,
+    "PATCH",
+    {
+      ...mLeft,
+      member_status: "ACTIVE",
+      leave_date: null,
+      reason: "Quay trở lại sinh hoạt cùng CLB",
+    },
+    1,
+  );
+  assert.equal(reactivateRes.status, 200);
+
+  const mReactivated = sql(
+    "SELECT * FROM CLUB_MEMBERS WHERE club_member_id=?",
+    m1.club_member_id,
+  );
+  assert.equal(mReactivated.member_status, "ACTIVE");
+  assert.equal(mReactivated.leave_date, null);
+
+  const rolesReactivated = sql(
+    "SELECT COUNT(*) as n FROM USER_ROLES WHERE user_id=? AND club_id=1 AND active_flag=1",
+    candUserId,
+  );
+  assert.equal(Number(rolesReactivated.n), 1);
+
+  // 5. Protection of last active leader: cannot change status to PAUSED or LEFT
+  sqlite
+    .prepare(
+      "UPDATE USER_ROLES SET active_flag=0 WHERE club_id=1 AND role_id=2 AND user_id<>10002",
+    )
+    .run();
+  const leaderMember = sql(
+    "SELECT cm.* FROM CLUB_MEMBERS cm WHERE cm.club_id=1 AND cm.user_id=10002",
+  );
+  const lockLeaderRes = await call(
+    "LEADER",
+    `members/${leaderMember.club_member_id}`,
+    "PATCH",
+    {
+      ...leaderMember,
+      member_status: "LEFT",
+      leave_date: "2026-10-09",
+      reason: "Muốn rời CLB",
+    },
+    1,
+  );
+  assert.equal(lockLeaderRes.status, 400);
+
+  // Restore leaders in Club 1
+  sqlite
+    .prepare(
+      "UPDATE USER_ROLES SET active_flag=1 WHERE club_id=1 AND role_id=2",
+    )
+    .run();
+});
+

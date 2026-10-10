@@ -137,6 +137,344 @@ export function EventMini({ event }: any) {
     </button>
   );
 }
+
+export function actionLabel(a: string) {
+  const map: Record<string, string> = {
+    ASSIGN_ROLE: "Cập nhật phân quyền",
+    CHANGE_MEMBER_STATUS: "Thay đổi trạng thái thành viên",
+    LEAVE_CLUB: "Rời câu lạc bộ",
+    UPDATE_MEMBER: "Cập nhật hồ sơ thành viên",
+    CREATE_EVENT: "Tạo sự kiện",
+    UPDATE_EVENT: "Cập nhật sự kiện",
+    PUBLISH_EVENT: "Công bố sự kiện",
+    APPROVE_EXPENSE: "Phê duyệt khoản chi",
+    REJECT_EXPENSE: "Từ chối khoản chi",
+    LOCK_ATTENDANCE: "Khóa điểm danh",
+    CREATE_TRANSACTION: "Lập giao dịch",
+    APPROVE_TRANSACTION: "Phê duyệt khoản chi",
+    POST_TRANSACTION: "Ghi sổ giao dịch",
+    RECORD_ATTENDANCE: "Ghi nhận điểm danh",
+    REGISTER_EVENT: "Đăng ký sự kiện",
+    CREATE_MEMBER: "Thêm thành viên",
+    UPDATE_PROFILE: "Cập nhật hồ sơ",
+    CREATE_ACCOUNT: "Tạo tài khoản",
+    UPDATE_ACCOUNT: "Cập nhật tài khoản",
+    CLOSE_EVENT: "Chốt danh sách",
+    START_EVENT: "Bắt đầu sự kiện",
+    COMPLETE_EVENT: "Hoàn tất sự kiện",
+    CANCEL_EVENT: "Hủy sự kiện",
+    REVIEW_REGISTRATION: "Duyệt đăng ký",
+    TRANSACTION_REASON: "Lý do giao dịch",
+    ATTACH_EVIDENCE: "Bổ sung chứng từ",
+    SUBMIT_TRANSACTION: "Gửi phê duyệt chi",
+    REJECT_TRANSACTION: "Từ chối khoản chi",
+    CANCEL_TRANSACTION: "Hủy giao dịch",
+    CREATE_CLUB: "Tạo câu lạc bộ",
+    UPDATE_CLUB: "Cập nhật câu lạc bộ",
+    CHANGE_PASSWORD: "Đổi mật khẩu",
+    RESET_PASSWORD: "Khôi phục mật khẩu",
+    CANCEL_EVENT_REASON: "Lý do hủy sự kiện",
+    PUBLISH_EVENT_REASON: "Lý do công bố sự kiện",
+    CANCEL_REGISTRATION: "Hủy đăng ký sự kiện",
+    APPROVE_JOIN_REQUEST: "Duyệt đơn gia nhập",
+    REJECT_JOIN_REQUEST: "Từ chối đơn gia nhập",
+    CREATE_DEPARTMENT: "Tạo ban / nhóm",
+    UPDATE_DEPARTMENT: "Cập nhật ban / nhóm",
+    DELETE_DEPARTMENT: "Xóa ban / nhóm",
+    UPDATE_ROLE_NAME: "Đổi tên vai trò",
+  };
+  return map[a] || (a ? a.toLowerCase().replaceAll("_", " ") : "Thao tác");
+}
+
+export function parseAuditDetail(a: any) {
+  if (a.details && typeof a.details === "string" && !a.details.startsWith("{")) {
+    return a.details;
+  }
+  const source = a.new_value || a.old_value || a.details;
+  if (source) {
+    try {
+      const v = typeof source === "string" ? JSON.parse(source) : source;
+      if (v.event_name) return `Sự kiện: "${v.event_name}"`;
+      if (v.description) return `${v.description}${v.amount ? ` (${money(v.amount)})` : ""}`;
+      if (v.role_name) return `Vai trò: ${v.role_name}`;
+      if (v.full_name) return `Thành viên: ${v.full_name}`;
+      if (v.department_name) return `Ban: ${v.department_name}`;
+      if (v.reason) return `Lý do: ${v.reason}`;
+      if (v.club_name) return `CLB: ${v.club_name}`;
+      if (v.evidence_url) return "Đính kèm chứng từ";
+    } catch {}
+  }
+  if (a.entity_name && a.entity_id) {
+    return `${a.entity_name} #${a.entity_id}`;
+  }
+  return "";
+}
+
+export function getAuditVisuals(action: string) {
+  const code = action?.toUpperCase() || "";
+  if (
+    code.includes("TRANSACTION") ||
+    code.includes("EXPENSE") ||
+    code.includes("FINANCE")
+  ) {
+    return {
+      icon: Wallet,
+      colorClass:
+        "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+    };
+  }
+  if (
+    code.includes("EVENT") ||
+    code.includes("REGISTRATION") ||
+    code.includes("ATTENDANCE")
+  ) {
+    return {
+      icon: CalendarDays,
+      colorClass:
+        "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
+    };
+  }
+  if (
+    code.includes("MEMBER") ||
+    code.includes("ROLE") ||
+    code.includes("DEPARTMENT") ||
+    code.includes("JOIN")
+  ) {
+    return {
+      icon: Users,
+      colorClass:
+        "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+    };
+  }
+  if (
+    code.includes("ACCOUNT") ||
+    code.includes("PASSWORD") ||
+    code.includes("LOCK") ||
+    code.includes("CLUB")
+  ) {
+    return {
+      icon: ShieldCheck,
+      colorClass:
+        "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+    };
+  }
+  return {
+    icon: History,
+    colorClass:
+      "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20",
+  };
+}
+
+export function ActivityTimelineHorizontal({
+  items,
+  onNavigate,
+  isAdmin = false,
+}: {
+  items: any[];
+  onNavigate: (path: string) => void;
+  isAdmin?: boolean;
+}) {
+  if (!items || items.length === 0) {
+    return (
+      <div className="p-6">
+        <EmptyState
+          title="Chưa có nhật ký hoạt động"
+          description="Các thao tác cập nhật sự kiện, tài chính và nhân sự sẽ hiển thị tại đây."
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="activity-horizontal-stream">
+      {items.map((a: any) => {
+        const visuals = getAuditVisuals(a.action_code);
+        const IconComponent = visuals.icon;
+        const detailText = parseAuditDetail(a);
+        const actorName =
+          a.full_name?.split("·")[0]?.trim() || a.username || "Hệ thống";
+
+        return (
+          <div className="activity-card-h" key={a.audit_id}>
+            <div>
+              <div className="activity-card-h-header">
+                <div
+                  className={`activity-card-h-icon border ${visuals.colorClass}`}
+                >
+                  <IconComponent size={16} />
+                </div>
+                <span className="text-[11px] text-muted-foreground font-medium">
+                  {dateText(a.created_at, true)}
+                </span>
+              </div>
+              <div className="activity-card-h-body">
+                <strong>{actionLabel(a.action_code)}</strong>
+                {detailText ? (
+                  <p className="line-clamp-2" title={detailText}>
+                    {detailText}
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground italic">
+                    Thao tác hệ thống đã ghi nhận
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="activity-card-h-footer">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Avatar name={actorName} />
+                <span
+                  className="truncate font-medium text-foreground text-xs"
+                  title={actorName}
+                >
+                  {actorName}
+                </span>
+              </div>
+              {isAdmin && a.club_name ? (
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-muted font-medium text-muted-foreground truncate max-w-[90px]"
+                  title={a.club_name}
+                >
+                  {a.club_name}
+                </span>
+              ) : (
+                <span className="text-[10px] text-muted-foreground uppercase font-mono">
+                  #{a.audit_id}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function PendingApprovalSection({
+  tasks,
+  pending = [],
+  awaitingPost = [],
+  can,
+  navigate,
+}: {
+  tasks?: any;
+  pending?: any[];
+  awaitingPost?: any[];
+  can: (...codes: string[]) => boolean;
+  navigate: (path: string) => void;
+}) {
+  const pendingCount = pending.length;
+  const awaitingCount = awaitingPost.length;
+  const totalTasks = pendingCount + awaitingCount;
+
+  if (totalTasks === 0) {
+    return (
+      <section className="panel approval-summary all-clear">
+        <span className="cleared-icon">
+          <CheckCircle2 size={24} />
+        </span>
+        <h3 className="font-bold text-base text-emerald-800 dark:text-emerald-300">
+          Sổ quỹ đã ghi sổ đầy đủ
+        </h3>
+        <p className="text-xs text-muted-foreground mt-1 mb-4 text-center">
+          Không có đề xuất chi hay giao dịch nào đang chờ xử lý. Mọi khoản thu chi đã được ghi sổ hoàn tất.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-emerald-300 hover:bg-emerald-50 dark:border-emerald-800 dark:hover:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 w-full"
+          onClick={() => navigate("finance")}
+        >
+          Xem sổ quỹ <ArrowRight size={14} className="ml-1" />
+        </Button>
+      </section>
+    );
+  }
+
+  const totalAmount =
+    pending.reduce((sum, t) => sum + Number(t.amount || 0), 0) +
+    awaitingPost.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+  return (
+    <section className="panel approval-summary">
+      <span className="pending-icon">
+        <Clock size={21} />
+      </span>
+      <h3>{totalTasks} khoản tài chính cần xử lý</h3>
+      <p>Tổng giá trị {money(totalAmount)}</p>
+
+      <div className="w-full space-y-2 mb-3 text-left">
+        {pending.slice(0, 3).map((item: any) => (
+          <div key={`p-${item.transaction_id}`} className="pending-item">
+            <div className="flex items-center justify-between font-semibold text-xs">
+              <span className="truncate pr-2">{item.description}</span>
+              <span className="text-amber-600 font-bold whitespace-nowrap">
+                {money(item.amount)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+              <span>{item.creator_name || "Thành viên"}</span>
+              <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium text-[10px]">
+                Chờ duyệt
+              </span>
+            </div>
+          </div>
+        ))}
+
+        {awaitingPost.slice(0, 3).map((item: any) => (
+          <div key={`ap-${item.transaction_id}`} className="pending-item">
+            <div className="flex items-center justify-between font-semibold text-xs">
+              <span className="truncate pr-2">{item.description}</span>
+              <span className="text-blue-600 font-bold whitespace-nowrap">
+                {money(item.amount)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+              <span>Đã duyệt bởi {item.approver_name || "CNCLB"}</span>
+              <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-700 dark:text-blue-400 font-medium text-[10px]">
+                Chờ ghi sổ
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="w-full space-y-2">
+        {pendingCount > 0 && can("LEADER", "ADMIN") && (
+          <Button
+            variant="default"
+            size="sm"
+            className="w-full"
+            onClick={() => navigate("approvals")}
+          >
+            Phê duyệt đề xuất ({pendingCount}) <ArrowRight size={14} className="ml-1" />
+          </Button>
+        )}
+        {awaitingCount > 0 && can("TREASURER", "ADMIN") && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => navigate("finance")}
+          >
+            Ghi sổ khoản chi ({awaitingCount}) <ArrowRight size={14} className="ml-1" />
+          </Button>
+        )}
+        {!can("LEADER", "ADMIN") && !can("TREASURER", "ADMIN") && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => navigate("approvals")}
+          >
+            Xem đề xuất <ArrowRight size={14} className="ml-1" />
+          </Button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function Dashboard() {
   const {
       session,
@@ -166,10 +504,16 @@ export default function Dashboard() {
         title={`Xin chào, ${session.user.full_name.split("·")[0].trim().split(" ").slice(-2).join(" ")}!`}
         description={today}
       >
-        {can("OFFICER") && (
+        {can("OFFICER", "LEADER") && (
           <Button onClick={() => navigate("events?new")}>
             <Plus size={17} />
             Tạo sự kiện
+          </Button>
+        )}
+        {can("LEADER") && (
+          <Button variant="outline" onClick={() => navigate("approvals")}>
+            <CheckCheck size={17} />
+            Phê duyệt
           </Button>
         )}
       </PageTitle>
@@ -230,14 +574,14 @@ export default function Dashboard() {
                 <>
                   <Metric
                     label="Tổng thành viên"
-                    value={num(d.counts.total)}
-                    caption={`${num(d.counts.active)} thành viên đang sinh hoạt`}
+                    value={num(d.counts?.total)}
+                    caption={`${num(d.counts?.active)} thành viên đang sinh hoạt`}
                     icon={Users}
                   />
                   <Metric
                     label="Sự kiện của CLB"
-                    value={num(d.stats.events)}
-                    caption={`${num(d.stats.open)} sự kiện đang công bố`}
+                    value={num(d.stats?.events)}
+                    caption={`${num(d.stats?.open)} sự kiện đang công bố`}
                     icon={CalendarDays}
                     tone="blue"
                   />
@@ -251,14 +595,14 @@ export default function Dashboard() {
                   ) : (
                     <Metric
                       label="Lượt đăng ký"
-                      value={num(d.stats.registrations)}
-                      caption={`${num(d.stats.pending)} đăng ký đang chờ duyệt`}
+                      value={num(d.stats?.registrations)}
+                      caption={`${num(d.stats?.pending)} đăng ký đang chờ duyệt`}
                       icon={CheckCheck}
                     />
                   )}
                   <Metric
                     label="Tỷ lệ tham dự"
-                    value={d.stats.attendance + "%"}
+                    value={(d.stats?.attendance ?? 0) + "%"}
                     caption="Các sự kiện đã hoàn tất"
                     icon={Activity}
                     tone="orange"
@@ -382,7 +726,7 @@ export default function Dashboard() {
                         Thêm thành viên
                       </button>
                     )}
-                    {can("OFFICER") && (
+                    {can("OFFICER", "LEADER") && (
                       <button onClick={() => navigate("events?new")}>
                         <span>
                           <CalendarDays size={20} />
@@ -422,7 +766,16 @@ export default function Dashboard() {
                 </section>
                 {d.departments && (
                   <section className="panel departments">
-                    <SectionHeader title="Các ban & nhóm" />
+                    <SectionHeader title="Các ban & nhóm">
+                      {can("LEADER") && (
+                        <button
+                          className="text-link"
+                          onClick={() => navigate("departments")}
+                        >
+                          Quản lý <ArrowUpRight size={16} />
+                        </button>
+                      )}
+                    </SectionHeader>
                     <p className="section-note">Thành viên đang sinh hoạt</p>
                     {d.departments.map((item: any, i: number) => (
                       <div className="department-row" key={item.name}>
@@ -446,28 +799,14 @@ export default function Dashboard() {
                     ))}
                   </section>
                 )}
-                {d.pending?.length > 0 && (
-                  <section className="panel approval-summary">
-                    <span className="pending-icon">
-                      <Clock size={21} />
-                    </span>
-                    <h3>{d.pending.length} đề nghị đang chờ</h3>
-                    <p>
-                      Tổng giá trị{" "}
-                      {money(
-                        d.pending.reduce(
-                          (n: number, t: any) => n + Number(t.amount),
-                          0,
-                        ),
-                      )}
-                    </p>
-                    <Button
-                      variant="outline"
-                      onClick={() => navigate("approvals")}
-                    >
-                      Xem đề nghị <ArrowRight size={16} />
-                    </Button>
-                  </section>
+                {d.fund && (
+                  <PendingApprovalSection
+                    tasks={d.finance_tasks}
+                    pending={d.pending}
+                    awaitingPost={d.awaiting_post}
+                    can={can}
+                    navigate={navigate}
+                  />
                 )}
                 {d.personal && (
                   <section className="panel personal-card">
@@ -492,30 +831,20 @@ export default function Dashboard() {
                 )}
               </aside>
             </div>
-            {d.activity?.length > 0 && (
+            {d.activity && (
               <section className="panel activity-panel">
-                <SectionHeader title="Hoạt động gần đây">
+                <SectionHeader title="Lịch sử hoạt động gần đây">
                   <button
                     className="text-link"
                     onClick={() => navigate("audit")}
                   >
-                    Nhật ký hoạt động <ArrowUpRight size={16} />
+                    Xem tất cả nhật ký <ArrowUpRight size={16} />
                   </button>
                 </SectionHeader>
-                <div className="activity-grid">
-                  {d.activity.slice(0, 3).map((a: any) => (
-                    <div className="activity-item" key={a.audit_id}>
-                      <span>
-                        <History size={17} />
-                      </span>
-                      <div>
-                        <strong>{a.full_name?.split("·")[0]}</strong>
-                        <p>{actionLabel(a.action_code)}</p>
-                        <small>{dateText(a.created_at, true)}</small>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <ActivityTimelineHorizontal
+                  items={d.activity}
+                  onNavigate={navigate}
+                />
               </section>
             )}
           </>
@@ -541,35 +870,6 @@ export default function Dashboard() {
       )}
     </>
   );
-}
-export function actionLabel(a: string) {
-  const map: Record<string, string> = {
-    ASSIGN_ROLE: "Cập nhật phân quyền",
-    CHANGE_MEMBER_STATUS: "Thay đổi trạng thái thành viên",
-    LEAVE_CLUB: "Rời câu lạc bộ",
-    UPDATE_MEMBER: "Cập nhật hồ sơ thành viên",
-    CREATE_EVENT: "Tạo sự kiện",
-    UPDATE_EVENT: "Cập nhật sự kiện",
-    PUBLISH_EVENT: "Công bố sự kiện",
-    APPROVE_EXPENSE: "Phê duyệt khoản chi",
-    REJECT_EXPENSE: "Từ chối khoản chi",
-    LOCK_ATTENDANCE: "Khóa điểm danh",
-    CREATE_TRANSACTION: "Lập giao dịch",
-    APPROVE_TRANSACTION: "Phê duyệt khoản chi",
-    POST_TRANSACTION: "Ghi sổ giao dịch",
-    RECORD_ATTENDANCE: "Ghi nhận điểm danh",
-    REGISTER_EVENT: "Đăng ký sự kiện",
-    CREATE_MEMBER: "Thêm thành viên",
-    UPDATE_PROFILE: "Cập nhật hồ sơ",
-    CREATE_ACCOUNT: "Tạo tài khoản",
-    UPDATE_ACCOUNT: "Cập nhật tài khoản",
-    CLOSE_EVENT: "Chốt danh sách",
-    START_EVENT: "Bắt đầu sự kiện",
-    COMPLETE_EVENT: "Hoàn tất sự kiện",
-    CANCEL_EVENT: "Hủy sự kiện",
-    REVIEW_REGISTRATION: "Duyệt đăng ký",
-  };
-  return map[a] || a.toLowerCase().replaceAll("_", " ");
 }
 
 export function AdminDashboard() {
@@ -775,45 +1075,43 @@ export function AdminDashboard() {
               </section>
 
               <section className="panel">
-                <SectionHeader title="Nhật ký an ninh gần nhất">
-                  <button
-                    className="text-link"
-                    onClick={() => navigate("audit")}
-                  >
-                    Chi tiết <ArrowUpRight size={16} />
-                  </button>
-                </SectionHeader>
-                <div className="space-y-2.5 mt-2">
-                  {d.recentAudits?.length ? (
-                    d.recentAudits.map((a: any) => (
-                      <div
-                        key={a.audit_id}
-                        className="text-xs p-2.5 rounded-lg border border-border/50 bg-muted/20"
-                      >
-                        <div className="flex items-center justify-between font-semibold">
-                          <span className="text-primary">
-                            {actionLabel(a.action_code)}
-                          </span>
-                          <span className="text-muted-foreground text-[11px]">
-                            {dateText(a.created_at, true)}
-                          </span>
-                        </div>
-                        <div className="text-muted-foreground mt-0.5 truncate">
-                          {a.full_name || a.username || "Hệ thống"}{" "}
-                          {a.club_name ? `· ${a.club_name}` : ""}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <EmptyState
-                      title="Chưa có nhật ký"
-                      description="Các thao tác hệ thống sẽ được ghi lại tại đây."
-                    />
-                  )}
+                <SectionHeader title="Hệ thống vận hành" />
+                <div className="space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Trạng thái dịch vụ
+                    </span>
+                    <strong className="font-semibold">Hoạt động</strong>
+                  </div>
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-muted/40">
+                    <span className="text-muted-foreground">Cơ chế bảo mật</span>
+                    <strong className="font-mono text-[11px]">HMAC + RBAC</strong>
+                  </div>
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-muted/40">
+                    <span className="text-muted-foreground">Quyền truy cập</span>
+                    <span className="font-medium text-primary">Quản trị toàn trường</span>
+                  </div>
                 </div>
               </section>
             </aside>
           </div>
+
+          <section className="panel activity-panel">
+            <SectionHeader title="Lịch sử hoạt động toàn hệ thống">
+              <button
+                className="text-link"
+                onClick={() => navigate("audit")}
+              >
+                Xem toàn bộ nhật ký <ArrowUpRight size={16} />
+              </button>
+            </SectionHeader>
+            <ActivityTimelineHorizontal
+              items={d.recentAudits || []}
+              onNavigate={navigate}
+              isAdmin={true}
+            />
+          </section>
         </>
       )}
     </LoadState>

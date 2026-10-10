@@ -94,6 +94,7 @@ LEFT JOIN AttAgg a ON a.event_id = e.event_id;
 
 const TABLE_SEQUENCES: [string, string][] = [
   ["CLUBS", "club_id"],
+  ["CLUB_DEPARTMENTS", "department_id"],
   ["USERS", "user_id"],
   ["ROLES", "role_id"],
   ["USER_ROLES", "user_role_id"],
@@ -134,6 +135,7 @@ async function main() {
       "ROLES",
       "USERS",
       "CLUBS",
+      "CLUB_DEPARTMENTS",
       "USER_ROLES",
       "CLUB_MEMBERS",
       "MEMBER_STATUS_HISTORY",

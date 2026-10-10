@@ -96,6 +96,7 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 28 quy tắc n
 - **`BR-26` (Tự động bắt đầu sự kiện - Event Auto-start Lifecycle):** Sự kiện đã công bố (`OPEN`) hoặc đã chốt danh sách (`CLOSED`) sẽ tự động chuyển trạng thái sang `ONGOING` (Đang diễn ra) khi đến ngày giờ bắt đầu (`start_at <= now()`), không yêu cầu can thiệp thủ công từ cán bộ CLB.
 - **`BR-27` (Tách bạch thẩm quyền Phê duyệt - Approval Separation):** Thủ quỹ (`TREASURER`) chỉ quản lý sổ quỹ và đề xuất chi trong phân hệ "Tài chính", không thấy menu "Phê duyệt". Phân hệ "Phê duyệt" được nâng cấp thành **Trung tâm Phê duyệt điều hành (`ApprovalCenter`)** chỉ dành cho Chủ nhiệm (`LEADER`), hợp nhất 2 tab: Phê duyệt đề nghị chi tiêu tài chính và Xét duyệt đơn xin gia nhập CLB của sinh viên.
 - **`BR-28` (Hệ thống Thông báo Thời gian thực - Real-time Notification System):** Bảng `NOTIFICATIONS` lưu trữ thông báo người dùng (`notification_id`, `user_id`, `club_id`, `title`, `content`, `type`, `link_url`, `is_read`, `created_at`, `read_at`). Tự động phát sinh thông báo khi: nộp đơn xin gia nhập (báo Leader/Officer), duyệt/từ chối đơn (báo người nộp), rời CLB (báo Leader), công bố sự kiện mới (báo toàn thể thành viên), hủy sự kiện (báo người tham gia), đăng ký sự kiện cần duyệt (báo Leader/Officer), duyệt/từ chối đăng ký sự kiện (báo người đăng ký), ghi nhận điểm danh (báo người tham dự), đề xuất duyệt chi (báo Leader), duyệt/từ chối chi (báo người tạo). Giao diện có badge đếm unread, lọc "Tất cả"/"Chưa đọc", đánh dấu đã đọc đơn lẻ/tất cả, polling chu kỳ 30s và in-app toast notification khi có thông báo mới.
+- **`BR-29` (Quản lý Ban / Nhóm trong CLB & Phân ban thành viên mới):** Mỗi câu lạc bộ có các ban, nhóm chuyên môn riêng (bảng `CLUB_DEPARTMENTS`) do Chủ nhiệm (`LEADER`) hoặc Cán bộ (`OFFICER`) khởi tạo và quản lý (`UQ_CLUB_DEPARTMENTS_club_name`). Tên ban/nhóm là duy nhất trong cùng CLB. Khi sửa tên ban/nhóm, hệ thống tự động cập nhật đồng bộ cho toàn bộ thành viên đang thuộc ban đó (`CLUB_MEMBERS`). Không được phép xóa ban/nhóm đang có thành viên đang hoạt động (`ACTIVE`). Khi xét duyệt đơn gia nhập mới, Chủ nhiệm/Cán bộ có thể chọn từ danh sách ban/nhóm đang hoạt động của CLB hoặc tạo mới ban/nhóm để phân công người mới vào.
 
 ---
 
@@ -234,7 +235,7 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 28 quy tắc n
 
 ## 7. Cấu trúc Cơ sở Dữ liệu (Schema & Views Reference)
 
-### 16 Models Prisma trong [`prisma/schema.prisma`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/prisma/schema.prisma):
+### 18 Models Prisma trong [`prisma/schema.prisma`](file:///C:/Users/A.Long/OneDrive/Desktop/PTTKHTPM/Clubspace-source/prisma/schema.prisma):
 1. `User`: Tài khoản người dùng (`user_id`, `student_code`, `username`, `password_hash`, `full_name`, `email`, `account_status`, v.v.).
 2. `Club`: Thông tin câu lạc bộ (`club_id`, `club_code`, `club_name`, `club_status`, v.v.).
 3. `Role`: Danh mục 5 vai trò hệ thống (`role_id`, `role_code`, `role_name`).
@@ -251,6 +252,8 @@ AI Agent khi đọc hoặc sinh code **BẮT BUỘC** tuân thủ 28 quy tắc n
 14. `AuthAttempt`: Kiểm soát đăng nhập/rate-limiting (`attempt_id`, `username`, `success_flag`, `ip_address`, `created_at`).
 15. `AppSetup`: Cờ khởi tạo hệ thống (`setup_key`, `setup_value`, `created_at`).
 16. `ClubJoinRequest`: Đơn xin gia nhập câu lạc bộ (`request_id`, `club_id`, `user_id`, `message`, `status` ['PENDING'/'APPROVED'/'REJECTED'/'CANCELLED'], `reviewed_by`, `review_reason`, `reviewed_at`, `created_at`, `updated_at`).
+17. `Notification`: Thông báo người dùng (`notification_id`, `user_id`, `club_id`, `title`, `content`, `type`, `link_url`, `is_read`, `created_at`, `read_at`).
+18. `ClubDepartment`: Danh mục ban / nhóm chuyên môn trong CLB do Chủ nhiệm/Cán bộ tạo và quản lý (`department_id`, `club_id`, `department_name`, `description`, `active_flag`, `created_at`).
 
 ### 2 Views Tổng hợp:
 - **`vw_club_fund_summary`**: Tính `total_income`, `total_expense`, `balance` theo từng `club_id` (chỉ gom nhóm các giao dịch `transaction_status = 'POSTED'`).

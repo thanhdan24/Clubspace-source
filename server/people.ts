@@ -30,6 +30,57 @@ import {
   notifyClubRoles,
   type Context,
 } from "./core";
+
+export async function getNextMemberCode(
+  c: Context,
+  clubId: number,
+): Promise<string> {
+  const clubRow = await one(
+    c.db,
+    "SELECT club_id, club_code, member_code_prefix FROM CLUBS WHERE club_id=?",
+    [clubId],
+  );
+  let prefix = (clubRow?.member_code_prefix || "").trim().toUpperCase();
+  if (!prefix) {
+    prefix =
+      (clubRow?.club_code || "MB")
+        .replace(/^CLB[-_]?/i, "")
+        .trim()
+        .toUpperCase() || "MB";
+  }
+
+  const existingRows = await all(
+    c.db,
+    "SELECT member_code FROM CLUB_MEMBERS WHERE club_id=?",
+    [clubId],
+  );
+  const existingSet = new Set(
+    existingRows.map((r) => String(r.member_code || "").trim().toUpperCase()),
+  );
+
+  let maxNum = 0;
+  const prefixRegex = new RegExp(`^${prefix}[-_]?(\\d+)$`, "i");
+
+  for (const r of existingRows) {
+    const code = String(r.member_code || "").trim();
+    const match = code.match(prefixRegex);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (!isNaN(n) && n > maxNum) {
+        maxNum = n;
+      }
+    }
+  }
+
+  let nextNum = maxNum + 1;
+  let candidate = `${prefix}${String(nextNum).padStart(3, "0")}`;
+  while (existingSet.has(candidate.toUpperCase())) {
+    nextNum++;
+    candidate = `${prefix}${String(nextNum).padStart(3, "0")}`;
+  }
+  return candidate;
+}
+
 export async function peopleRoute(c: Context, path: string, req: Request) {
   const url = new URL(req.url),
     method = req.method;
@@ -177,7 +228,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     if (isStaff(c))
       result.members = await all(
         c.db,
-        "SELECT cm.club_member_id,cm.member_code,u.full_name,cm.user_id FROM CLUB_MEMBERS cm JOIN USERS u ON u.user_id=cm.user_id WHERE cm.club_id=? ORDER BY u.full_name",
+        "SELECT cm.club_member_id,cm.member_code,u.full_name,cm.user_id FROM CLUB_MEMBERS cm JOIN USERS u ON u.user_id=cm.user_id WHERE cm.club_id=? AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia') AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự') ORDER BY u.full_name",
         [c.club],
       );
     if (c.admin || has(c, "LEADER", "OFFICER"))
@@ -191,6 +242,20 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
         "SELECT * FROM FINANCE_CATEGORIES WHERE club_id=? ORDER BY category_name",
         [c.club],
       );
+    if (c.club) {
+      result.departments = await all(
+        c.db,
+        "SELECT department_id, department_name, description FROM CLUB_DEPARTMENTS WHERE club_id=? AND active_flag=1 ORDER BY department_name",
+        [c.club],
+      );
+      const clubRow = await one(
+        c.db,
+        "SELECT club_id, club_code, member_code_prefix FROM CLUBS WHERE club_id=?",
+        [c.club],
+      );
+      result.member_code_prefix = clubRow?.member_code_prefix || "MB";
+      result.next_member_code = await getNextMemberCode(c, c.club);
+    }
     return json(result);
   }
   if (path === "members" && method === "GET") {
@@ -198,7 +263,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     const { q, status } = paging(url);
     const p: any[] = [c.club, "%" + q + "%", "%" + q + "%"];
     let sql =
-      "SELECT cm.*,u.full_name,u.student_code,u.email,u.phone,u.faculty,u.class_name,u.account_status FROM CLUB_MEMBERS cm JOIN USERS u ON u.user_id=cm.user_id WHERE cm.club_id=? AND (u.full_name LIKE ? OR cm.member_code LIKE ?)";
+      "SELECT cm.*,u.full_name,u.student_code,u.email,u.phone,u.faculty,u.class_name,u.account_status FROM CLUB_MEMBERS cm JOIN USERS u ON u.user_id=cm.user_id WHERE cm.club_id=? AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia') AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự') AND (u.full_name LIKE ? OR cm.member_code LIKE ?)";
     if (status) {
       sql += " AND cm.member_status=?";
       p.push(status);
@@ -229,7 +294,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     const b = z
       .object({
         user_id: idSchema,
-        member_code: str(30),
+        member_code: str(30).optional(),
         join_date: date,
         department_name: opt(120),
         position_name: opt(120),
@@ -239,11 +304,19 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       await one(c.db, "SELECT user_id FROM USERS WHERE user_id=?", [b.user_id]),
       "Tài khoản không tồn tại.",
     );
+    const autoCode = await getNextMemberCode(c, c.club);
+    const finalCode =
+      b.member_code &&
+      b.member_code.trim() &&
+      b.member_code !== "AUTO" &&
+      !b.member_code.includes("Tự động")
+        ? b.member_code.trim()
+        : autoCode;
     fail(
       !(await one(
         c.db,
         "SELECT club_member_id FROM CLUB_MEMBERS WHERE club_id=? AND (user_id=? OR member_code=?)",
-        [c.club, b.user_id, b.member_code],
+        [c.club, b.user_id, finalCode],
       )),
       "Tài khoản hoặc mã thành viên đã tồn tại trong CLB.",
       409,
@@ -272,11 +345,18 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     const id = await insert(
       c,
       "CLUB_MEMBERS",
-      { ...b, club_id: c.club, member_status: "ACTIVE", created_at: now() },
+      {
+        ...b,
+        member_code: finalCode,
+        position_name: b.position_name || "Thành viên",
+        club_id: c.club,
+        member_status: "ACTIVE",
+        created_at: now(),
+      },
       "CREATE_MEMBER",
       [grant],
     );
-    return json({ club_member_id: id }, 201);
+    return json({ club_member_id: id, member_code: finalCode }, 201);
   }
   const m = path.match(/^members\/(\d+)(?:\/(history))?$/);
   if (m) {
@@ -300,32 +380,53 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       permit(c, "OFFICER", "LEADER");
       const b = z
         .object({
-          member_code: str(30),
-          join_date: date,
+          member_code: opt(30),
+          join_date: date.optional(),
           leave_date: z
             .union([date, z.literal(""), z.null()])
             .optional()
             .transform((v) => v || null),
-          member_status: z.enum(["ACTIVE", "PAUSED", "LEFT"]),
+          member_status: z.enum(["ACTIVE", "PAUSED", "LEFT"]).optional(),
           department_name: opt(120),
           position_name: opt(120),
           reason: opt(500),
         })
         .parse(await body(req));
+      const effectiveJoinDate = b.join_date || row.join_date;
+      const effectiveMemberStatus = b.member_status || row.member_status;
       fail(
-        !b.leave_date || b.leave_date >= b.join_date,
+        !b.leave_date || b.leave_date >= effectiveJoinDate,
         "Ngày rời không được trước ngày gia nhập.",
       );
       fail(
-        b.member_status !== "LEFT" || b.leave_date,
+        effectiveMemberStatus !== "LEFT" || b.leave_date,
         "Vui lòng nhập ngày rời câu lạc bộ.",
       );
       fail(
-        b.member_status === "LEFT" || !b.leave_date,
+        effectiveMemberStatus === "LEFT" || !b.leave_date,
         "Chỉ nhập ngày rời khi thành viên đã rời CLB.",
       );
+      if (effectiveMemberStatus !== "ACTIVE" && row.member_status === "ACTIVE") {
+        const isLeader = await one(
+          c.db,
+          "SELECT ur.user_role_id FROM USER_ROLES ur JOIN ROLES r ON r.role_id=ur.role_id WHERE ur.club_id=? AND ur.user_id=? AND r.role_code='LEADER' AND ur.active_flag=1",
+          [c.club, row.user_id],
+        );
+        if (isLeader) {
+          const leaderCount = await one(
+            c.db,
+            "SELECT COUNT(*) AS count FROM USER_ROLES ur JOIN ROLES r ON r.role_id=ur.role_id WHERE ur.club_id=? AND r.role_code='LEADER' AND ur.active_flag=1 AND ur.user_id<>?",
+            [c.club, row.user_id],
+          );
+          fail(
+            Number(leaderCount?.count || 0) > 0,
+            "Không thể ngưng hoạt động hoặc cho rời CLB với Chủ nhiệm duy nhất còn lại. Vui lòng chuyển giao vai trò Chủ nhiệm trước.",
+            400,
+          );
+        }
+      }
       const extras = [];
-      if (b.member_status !== row.member_status) {
+      if (effectiveMemberStatus !== row.member_status) {
         fail(b.reason, "Vui lòng nhập lý do thay đổi trạng thái.");
         extras.push(
           stmt(
@@ -334,21 +435,50 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
             [
               row.club_member_id,
               row.member_status,
-              b.member_status,
+              effectiveMemberStatus,
               b.reason,
               c.user.user_id,
               now(),
             ],
           ),
         );
+        if (effectiveMemberStatus === "LEFT" && row.member_status !== "LEFT") {
+          extras.push(
+            stmt(
+              c.db,
+              "UPDATE USER_ROLES SET active_flag=0 WHERE user_id=? AND club_id=?",
+              [row.user_id, c.club],
+            ),
+          );
+        } else if (effectiveMemberStatus === "ACTIVE" && row.member_status === "LEFT") {
+          const memberRole = await one(
+            c.db,
+            "SELECT role_id FROM ROLES WHERE role_code='MEMBER'",
+          );
+          if (memberRole) {
+            extras.push(
+              stmt(
+                c.db,
+                "UPDATE USER_ROLES SET active_flag=1, assigned_by=?, assigned_at=? WHERE user_id=? AND club_id=? AND role_id=?",
+                [c.user.user_id, now(), row.user_id, c.club, memberRole.role_id],
+              ),
+            );
+          }
+        }
       }
       const { reason, ...fields } = b;
+      const cleanFields: any = { updated_at: now() };
+      for (const [k, v] of Object.entries(fields)) {
+        if (v !== undefined) {
+          cleanFields[k] = v;
+        }
+      }
       await change(
         c,
         "CLUB_MEMBERS",
         "club_member_id",
         row.club_member_id,
-        { ...fields, updated_at: now() },
+        cleanFields,
         row,
         "UPDATE_MEMBER",
         extras,
@@ -469,8 +599,8 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     const clubs = await all(
       c.db,
       c.admin
-        ? "SELECT c.*, (SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE') AS active_members_count FROM CLUBS c ORDER BY c.club_id"
-        : "SELECT c.*, (SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE') AS active_members_count FROM CLUBS c WHERE c.club_status='ACTIVE' ORDER BY c.club_name",
+        ? "SELECT c.*, (SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE' AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia') AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự')) AS active_members_count FROM CLUBS c ORDER BY c.club_id"
+        : "SELECT c.*, (SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE' AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia') AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự')) AS active_members_count FROM CLUBS c WHERE c.club_status='ACTIVE' ORDER BY c.club_name",
     );
     const myMemberships = await all(
       c.db,
@@ -714,6 +844,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
         status: z.enum(["APPROVED", "REJECTED"]),
         reason: z.string().trim().max(500).optional(),
         department_name: z.string().trim().max(120).optional(),
+        position_name: z.string().trim().max(120).optional(),
       })
       .parse(await body(req));
     if (b.status === "REJECTED") {
@@ -773,26 +904,41 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
           "INSERT INTO USER_ROLES(user_id,role_id,club_id,assigned_by,assigned_at,active_flag) VALUES (?,?,?,?,?,1)",
           [targetUserId, memberRole!.role_id, c.club, c.user.user_id, now()],
         );
-    const dept = b.department_name || "Ban Thành viên";
+    let dept = b.department_name;
+    if (!dept) {
+      const firstDept = await one(
+        c.db,
+        "SELECT department_name FROM CLUB_DEPARTMENTS WHERE club_id=? AND active_flag=1 ORDER BY department_id ASC",
+        [c.club],
+      );
+      dept = firstDept ? firstDept.department_name : "Ban Thành viên";
+    }
+    const existsInDept = await one(
+      c.db,
+      "SELECT department_id FROM CLUB_DEPARTMENTS WHERE club_id=? AND department_name=?",
+      [c.club, dept],
+    );
+    if (!existsInDept) {
+      await stmt(
+        c.db,
+        "INSERT INTO CLUB_DEPARTMENTS (club_id, department_name, description, active_flag, created_at) VALUES (?,?,?,1,?)",
+        [c.club, dept, "Ban / nhóm tiếp nhận thành viên mới", now()],
+      ).run();
+    }
+    const pos = b.position_name || "Thành viên";
     let memberStmt: any;
     if (existingMember) {
       memberStmt = stmt(
         c.db,
-        "UPDATE CLUB_MEMBERS SET member_status='ACTIVE', department_name=?, position_name='Thành viên', updated_at=? WHERE club_member_id=?",
-        [dept, now(), existingMember.club_member_id],
+        "UPDATE CLUB_MEMBERS SET member_status='ACTIVE', department_name=?, position_name=?, updated_at=? WHERE club_member_id=?",
+        [dept, pos, now(), existingMember.club_member_id],
       );
     } else {
-      const code = reqRow!.student_code || `MB_${targetUserId}`;
-      const codeTaken = await one(
-        c.db,
-        "SELECT club_member_id FROM CLUB_MEMBERS WHERE club_id=? AND member_code=?",
-        [c.club, code],
-      );
-      const finalCode = codeTaken ? `${code}_${targetUserId}` : code;
+      const finalCode = await getNextMemberCode(c, c.club);
       memberStmt = stmt(
         c.db,
-        "INSERT INTO CLUB_MEMBERS (club_id, user_id, member_code, join_date, member_status, department_name, position_name, created_at) VALUES (?,?,?,?,'ACTIVE',?,'Thành viên',?)",
-        [c.club, targetUserId, finalCode, day(), dept, now()],
+        "INSERT INTO CLUB_MEMBERS (club_id, user_id, member_code, join_date, member_status, department_name, position_name, created_at) VALUES (?,?,?,?,'ACTIVE',?,?,?)",
+        [c.club, targetUserId, finalCode, day(), dept, pos, now()],
       );
     }
     await c.db.batch([
@@ -838,6 +984,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
           .optional()
           .transform((v) => v || null),
         leader_user_id: idSchema,
+        member_code_prefix: opt(20),
       })
       .parse(await body(req));
     fail(
@@ -879,6 +1026,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
           .optional()
           .transform((v) => v || null),
         club_status: z.enum(["ACTIVE", "INACTIVE"]),
+        member_code_prefix: opt(20),
       })
       .parse(await body(req));
     const old = await scoped(c, "CLUBS", "club_id", c.club);
@@ -1009,17 +1157,153 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
   if (path === "audit" && method === "GET") {
     permit(c, "ADMIN", "LEADER");
     const { q } = paging(url);
+    const clubFilter = url.searchParams.get("clubFilter");
+    let sql =
+      "SELECT a.*, u.full_name, u.username, c_info.club_name, c_info.club_code FROM AUDIT_LOGS a LEFT JOIN USERS u ON u.user_id=a.user_id LEFT JOIN CLUBS c_info ON c_info.club_id=a.club_id WHERE ";
+    const params: any[] = [];
+    if (c.admin) {
+      if (clubFilter === "system") {
+        sql += "a.club_id IS NULL";
+      } else if (clubFilter && clubFilter !== "all") {
+        sql += "a.club_id=?";
+        params.push(Number(clubFilter));
+      } else {
+        sql += "1=1";
+      }
+    } else {
+      sql += "a.club_id=?";
+      params.push(c.club);
+    }
+    if (q) {
+      sql +=
+        " AND (a.action_code LIKE ? OR a.entity_name LIKE ? OR COALESCE(u.full_name, '') LIKE ? OR COALESCE(u.username, '') LIKE ?)";
+      params.push("%" + q + "%", "%" + q + "%", "%" + q + "%", "%" + q + "%");
+    }
     return json(
       await list(
         c,
-        "SELECT a.*,u.full_name FROM AUDIT_LOGS a LEFT JOIN USERS u ON u.user_id=a.user_id WHERE " +
-          (c.admin ? "(a.club_id=? OR a.club_id IS NULL)" : "a.club_id=?") +
-          " AND (a.action_code LIKE ? OR a.entity_name LIKE ?) ",
-        [c.club, "%" + q + "%", "%" + q + "%"],
+        sql,
+        params,
         "a.audit_id DESC",
         url,
       ),
     );
+  }
+  if (path === "departments" && method === "GET") {
+    readPermit(c, "LEADER", "OFFICER", "TREASURER", "MEMBER");
+    const rows = await all(
+      c.db,
+      `SELECT cd.*, 
+         COUNT(CASE WHEN cm.member_status = 'ACTIVE' THEN 1 END) AS member_count
+       FROM CLUB_DEPARTMENTS cd
+       LEFT JOIN CLUB_MEMBERS cm ON cm.club_id=cd.club_id AND cm.department_name=cd.department_name
+       WHERE cd.club_id=?
+       GROUP BY cd.department_id, cd.club_id, cd.department_name, cd.description, cd.active_flag, cd.created_at
+       ORDER BY cd.active_flag DESC, cd.department_name ASC`,
+      [c.club],
+    );
+    return json({ rows, total: rows.length });
+  }
+  if (path === "departments" && method === "POST") {
+    permit(c, "LEADER", "OFFICER");
+    const b = z
+      .object({
+        department_name: str(100),
+        description: opt(500),
+      })
+      .parse(await body(req));
+    const existing = await one(
+      c.db,
+      "SELECT department_id FROM CLUB_DEPARTMENTS WHERE club_id=? AND LOWER(department_name)=LOWER(?)",
+      [c.club, b.department_name],
+    );
+    fail(!existing, "Ban / nhóm này đã tồn tại trong câu lạc bộ.", 409);
+    const id = await insert(
+      c,
+      "CLUB_DEPARTMENTS",
+      {
+        club_id: c.club,
+        department_name: b.department_name,
+        description: b.description || null,
+        active_flag: 1,
+        created_at: now(),
+      },
+      "CREATE_DEPARTMENT",
+    );
+    return json({ department_id: id, ok: true }, 201);
+  }
+  const deptMatch = path.match(/^departments\/(\d+)$/);
+  if (deptMatch && method === "PATCH") {
+    permit(c, "LEADER", "OFFICER");
+    const deptId = Number(deptMatch[1]);
+    const old = await scoped(c, "CLUB_DEPARTMENTS", "department_id", deptId);
+    const b = z
+      .object({
+        department_name: str(100).optional(),
+        description: opt(500),
+        active_flag: z.coerce.number().int().min(0).max(1).optional(),
+      })
+      .parse(await body(req));
+
+    if (
+      b.department_name &&
+      b.department_name.toLowerCase() !== old.department_name.toLowerCase()
+    ) {
+      const duplicate = await one(
+        c.db,
+        "SELECT department_id FROM CLUB_DEPARTMENTS WHERE club_id=? AND LOWER(department_name)=LOWER(?) AND department_id<>?",
+        [c.club, b.department_name, deptId],
+      );
+      fail(!duplicate, "Tên ban / nhóm đã tồn tại trong câu lạc bộ.", 409);
+    }
+
+    const extras: any[] = [];
+    if (b.department_name && b.department_name !== old.department_name) {
+      extras.push(
+        stmt(
+          c.db,
+          "UPDATE CLUB_MEMBERS SET department_name=?, updated_at=? WHERE club_id=? AND department_name=?",
+          [b.department_name, now(), c.club, old.department_name],
+        ),
+      );
+    }
+
+    await change(
+      c,
+      "CLUB_DEPARTMENTS",
+      "department_id",
+      deptId,
+      b,
+      old,
+      "UPDATE_DEPARTMENT",
+      extras,
+    );
+    return json({ ok: true });
+  }
+  if (deptMatch && method === "DELETE") {
+    permit(c, "LEADER");
+    const deptId = Number(deptMatch[1]);
+    const old = await scoped(c, "CLUB_DEPARTMENTS", "department_id", deptId);
+    const memberCount = await one(
+      c.db,
+      "SELECT COUNT(*) AS count FROM CLUB_MEMBERS WHERE club_id=? AND department_name=? AND member_status='ACTIVE'",
+      [c.club, old.department_name],
+    );
+    fail(
+      !memberCount || Number(memberCount.count) === 0,
+      `Không thể xóa "${old.department_name}" vì đang có ${memberCount?.count} thành viên sinh hoạt. Hãy chuyển thành viên sang ban khác trước hoặc tắt hoạt động.`,
+      400,
+    );
+
+    await c.db.batch([
+      stmt(
+        c.db,
+        "DELETE FROM CLUB_DEPARTMENTS WHERE department_id=? AND club_id=?",
+        [deptId, c.club],
+      ),
+      audit(c, "DELETE_DEPARTMENT", "CLUB_DEPARTMENTS", deptId, old, null),
+    ]);
+    return json({ ok: true });
   }
   return null;
 }

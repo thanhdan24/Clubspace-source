@@ -140,7 +140,7 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
       c.db,
       `SELECT
          c.*,
-         COALESCE((SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE'), 0) AS active_members_count
+         COALESCE((SELECT COUNT(*) FROM CLUB_MEMBERS cm WHERE cm.club_id=c.club_id AND cm.member_status='ACTIVE' AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia') AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự')), 0) AS active_members_count
        FROM CLUBS c
        ORDER BY c.club_id DESC
        LIMIT 8`,
@@ -307,6 +307,8 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
        COALESCE(SUM(CASE WHEN member_status='LEFT' THEN 1 ELSE 0 END),0) AS departed
      FROM CLUB_MEMBERS
      WHERE club_id=?
+       AND (department_name IS NULL OR department_name != 'Khách tham gia')
+       AND (position_name IS NULL OR position_name != 'Người tham dự')
        AND join_date>=?
        AND join_date<=?`,
     [c.club, memberFrom, memberTo],
@@ -341,6 +343,7 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
   let fund: any = null;
   let monthly: any[] = [];
   let pending: any[] = [];
+  let awaiting_post: any[] = [];
 
   if (finance) {
     fund = await one(
@@ -385,6 +388,24 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
        ORDER BY t.created_at DESC, t.transaction_id DESC`,
       [c.club],
     );
+
+    awaiting_post = await all(
+      c.db,
+      `SELECT
+         t.*,
+         cat.category_name,
+         u.full_name AS creator_name,
+         ap.full_name AS approver_name
+       FROM FINANCIAL_TRANSACTIONS t
+       JOIN FINANCE_CATEGORIES cat ON cat.category_id=t.category_id
+       JOIN USERS u ON u.user_id=t.created_by
+       LEFT JOIN USERS ap ON ap.user_id=t.approved_by
+       WHERE t.club_id=?
+         AND t.transaction_type='EXPENSE'
+         AND t.transaction_status='APPROVED'
+       ORDER BY t.approved_at DESC, t.transaction_id DESC`,
+      [c.club],
+    );
   }
 
   const departmentRows = await all(
@@ -393,6 +414,8 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
      FROM CLUB_MEMBERS
      WHERE club_id=?
        AND member_status='ACTIVE'
+       AND (department_name IS NULL OR department_name != 'Khách tham gia')
+       AND (position_name IS NULL OR position_name != 'Người tham dự')
        AND join_date>=?
        AND join_date<=?
      GROUP BY department_name
@@ -415,24 +438,28 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
      FROM CLUB_MEMBERS cm
      JOIN USERS u ON u.user_id=cm.user_id
      WHERE cm.club_id=?
+       AND (cm.department_name IS NULL OR cm.department_name != 'Khách tham gia')
+       AND (cm.position_name IS NULL OR cm.position_name != 'Người tham dự')
      ORDER BY cm.created_at DESC, cm.club_member_id DESC
      LIMIT 4`,
     [c.club],
   );
 
-  const activity =
-    c.admin || has(c, "LEADER")
-      ? await all(
-          c.db,
-          `SELECT a.*, u.full_name
-           FROM AUDIT_LOGS a
-           LEFT JOIN USERS u ON u.user_id=a.user_id
-           WHERE a.club_id=?
-           ORDER BY a.created_at DESC, a.audit_id DESC
-           LIMIT 5`,
-          [c.club],
-        )
-      : [];
+  const activityWhere = c.admin
+    ? "a.club_id=? OR a.club_id IS NULL"
+    : "a.club_id=?";
+
+  const activity = await all(
+    c.db,
+    `SELECT a.*, u.full_name, u.username, c_info.club_name
+     FROM AUDIT_LOGS a
+     LEFT JOIN USERS u ON u.user_id=a.user_id
+     LEFT JOIN CLUBS c_info ON c_info.club_id=a.club_id
+     WHERE ${activityWhere}
+     ORDER BY a.created_at DESC, a.audit_id DESC
+     LIMIT 10`,
+    [c.club],
+  );
 
   if (u.searchParams.get("export") === "csv") {
     if (type === "finance") {
@@ -488,6 +515,14 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
     fund,
     monthly,
     pending,
+    awaiting_post,
+    finance_tasks: {
+      pending_count: pending.length,
+      pending_amount: pending.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
+      awaiting_post_count: awaiting_post.length,
+      awaiting_post_amount: awaiting_post.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
+      is_all_posted: pending.length === 0 && awaiting_post.length === 0,
+    },
     departments,
     recentMembers,
     activity,
