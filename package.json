@@ -16,6 +16,7 @@
         "db:migrate": "prisma migrate dev",
         "db:studio": "prisma studio",
         "db:seed": "node --env-file=.env --import tsx scripts/seed-supabase.ts",
+        "db:keepalive": "node --env-file=.env --import tsx scripts/keepalive-supabase.ts",
         "dev:frontend": "vite --config standalone/vite.config.ts",
         "test": "node --import tsx --test tests/*.test.ts",
         "typecheck": "tsc --noEmit",

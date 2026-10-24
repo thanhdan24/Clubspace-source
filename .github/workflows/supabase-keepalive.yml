@@ -1,0 +1,50 @@
+name: Supabase Daily Keep-Alive
+
+on:
+  # Tự động chạy mỗi ngày vào lúc 09:00 sáng (giờ Việt Nam, tức 02:00 UTC)
+  schedule:
+    - cron: "0 2 * * *"
+  # Cho phép bấm nút "Run workflow" thủ công trên GitHub để kiểm tra bất cứ lúc nào
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    name: Ping Supabase PostgreSQL
+    runs-on: ubuntu-latest
+    # Không bao giờ đánh dấu đỏ (Failed) để tránh GitHub gửi email báo lỗi về máy
+    continue-on-error: true
+    timeout-minutes: 5
+
+    steps:
+      - name: Truy vấn và ghi dấu Keep-Alive vào Supabase
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "⚠️ Chưa cấu hình secret DATABASE_URL trong GitHub Settings -> Secrets and variables -> Actions."
+            exit 0
+          fi
+
+          # Lọc bỏ các tham số riêng của Prisma (như connection_limit, pool_timeout, pgbouncer) để psql kết nối trực tiếp
+          BASE_URL="${DATABASE_URL%%\?*}"
+          PSQL_URL="${BASE_URL}?sslmode=prefer&connect_timeout=30"
+
+          echo "🚀 Đang gửi truy vấn Keep-Alive tới Supabase..."
+
+          psql "$PSQL_URL" -v ON_ERROR_STOP=1 << 'EOF' || echo "⚠️ Mạng tạm thời gián đoạn, sẽ tự động thử lại vào lần chạy kế tiếp."
+          INSERT INTO "APP_SETUP" (setup_id, completed_at)
+          VALUES (999, TO_CHAR(NOW() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+          ON CONFLICT (setup_id) DO UPDATE SET completed_at = EXCLUDED.completed_at;
+
+          SELECT
+            setup_id AS "Mã Kiểm Chứng (setup_id)",
+            completed_at AS "Lần Ping Cuối (UTC)",
+            (SELECT COUNT(*) FROM "CLUBS") AS "Tổng Số CLB",
+            (SELECT COUNT(*) FROM "USERS") AS "Tổng Số Tài Khoản"
+          FROM "APP_SETUP"
+          WHERE setup_id = 999;
+          EOF
+
+          echo "✅ Hoàn tất tiến trình Keep-Alive!"
+          exit 0
