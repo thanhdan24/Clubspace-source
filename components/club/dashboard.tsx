@@ -799,6 +799,104 @@ export default function Dashboard() {
                     ))}
                   </section>
                 )}
+                {can("LEADER", "OFFICER") &&
+                  ((d.pending_join_requests?.length || 0) > 0 ||
+                    (d.draft_events?.length || 0) > 0) && (
+                    <section className="panel approval-summary">
+                      <span className="pending-icon">
+                        <Clock size={21} />
+                      </span>
+                      <h3>
+                        {(d.pending_join_requests?.length || 0) +
+                          (d.draft_events?.length || 0)}{" "}
+                        công việc điều hành chờ xử lý
+                      </h3>
+                      <p>Đơn xin gia nhập & sự kiện bản nháp cần xét duyệt</p>
+
+                      <div className="w-full space-y-2 mb-3 text-left">
+                        {(d.pending_join_requests || [])
+                          .slice(0, 3)
+                          .map((req: any) => (
+                            <div
+                              key={`jr-${req.request_id}`}
+                              className="pending-item"
+                            >
+                              <div className="flex items-center justify-between font-semibold text-xs">
+                                <span className="truncate pr-2">
+                                  {req.full_name}
+                                </span>
+                                <span className="text-purple-600 font-bold whitespace-nowrap">
+                                  {req.student_code || "Ứng viên"}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+                                <span className="truncate pr-2">
+                                  {req.message || "Đăng ký gia nhập CLB"}
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-700 dark:text-purple-400 font-medium text-[10px] whitespace-nowrap">
+                                  Đơn gia nhập
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+
+                        {(d.draft_events || []).slice(0, 3).map((ev: any) => (
+                          <div
+                            key={`de-${ev.event_id}`}
+                            className="pending-item"
+                          >
+                            <div className="flex items-center justify-between font-semibold text-xs">
+                              <span className="truncate pr-2">
+                                {ev.event_name}
+                              </span>
+                              <span className="text-emerald-600 font-bold whitespace-nowrap">
+                                {Number(ev.planned_budget || 0) > 0
+                                  ? money(ev.planned_budget)
+                                  : "0 ₫"}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+                              <span>{dateText(ev.start_at, true)}</span>
+                              <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 font-medium text-[10px] whitespace-nowrap">
+                                Chờ công bố
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="w-full space-y-2">
+                        {(d.pending_join_requests?.length || 0) > 0 && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="w-full"
+                            onClick={() => navigate("join-requests")}
+                          >
+                            Duyệt đơn gia nhập ({d.pending_join_requests.length}){" "}
+                            <ArrowRight size={14} className="ml-1" />
+                          </Button>
+                        )}
+                        {(d.draft_events?.length || 0) > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full"
+                            onClick={() =>
+                              navigate(
+                                can("LEADER") ? "approvals" : "events",
+                              )
+                            }
+                          >
+                            {can("LEADER")
+                              ? `Duyệt & công bố sự kiện (${d.draft_events.length})`
+                              : `Xem sự kiện bản nháp (${d.draft_events.length})`}{" "}
+                            <ArrowRight size={14} className="ml-1" />
+                          </Button>
+                        )}
+                      </div>
+                    </section>
+                  )}
                 {d.fund && (
                   <PendingApprovalSection
                     tasks={d.finance_tasks}

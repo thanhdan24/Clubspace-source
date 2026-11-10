@@ -110,6 +110,7 @@ CREATE TABLE `EVENTS` (
 	`end_at` text NOT NULL,
 	`registration_deadline` text NOT NULL,
 	`capacity` integer,
+	`planned_budget` numeric DEFAULT 0 NOT NULL,
 	`approval_required` integer NOT NULL,
 	`event_status` text NOT NULL,
 	`scope` text DEFAULT 'PUBLIC' NOT NULL,
@@ -119,6 +120,7 @@ CREATE TABLE `EVENTS` (
 	FOREIGN KEY (`club_id`) REFERENCES `CLUBS`(`club_id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`created_by`) REFERENCES `USERS`(`user_id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "CK_EVENTS_capacity" CHECK(("EVENTS"."capacity" IS NULL OR "EVENTS"."capacity">(0))),
+	CONSTRAINT "CK_EVENTS_planned_budget" CHECK(("EVENTS"."planned_budget">=(0))),
 	CONSTRAINT "CK_EVENTS_event_status" CHECK(("EVENTS"."event_status"='CANCELLED' OR "EVENTS"."event_status"='COMPLETED' OR "EVENTS"."event_status"='ONGOING' OR "EVENTS"."event_status"='CLOSED' OR "EVENTS"."event_status"='OPEN' OR "EVENTS"."event_status"='DRAFT')),
 	CONSTRAINT "CK_EVENTS_registration_deadline" CHECK(("EVENTS"."registration_deadline"<="EVENTS"."start_at")),
 	CONSTRAINT "CK_EVENTS_time" CHECK(("EVENTS"."end_at">"EVENTS"."start_at"))
@@ -170,6 +172,7 @@ CREATE TABLE `FINANCIAL_TRANSACTIONS` (
 	`created_at` text NOT NULL,
 	`approved_at` text,
 	`rejection_reason` text,
+	`replaces_transaction_id` integer,
 	FOREIGN KEY (`approved_by`) REFERENCES `USERS`(`user_id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`category_id`) REFERENCES `FINANCE_CATEGORIES`(`category_id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`club_id`) REFERENCES `CLUBS`(`club_id`) ON UPDATE no action ON DELETE no action,
@@ -257,7 +260,7 @@ CREATE TABLE `CLUB_JOIN_REQUESTS` (
 	FOREIGN KEY (`club_id`) REFERENCES `CLUBS`(`club_id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`user_id`) REFERENCES `USERS`(`user_id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`reviewed_by`) REFERENCES `USERS`(`user_id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "CK_CLUB_JOIN_REQUESTS_status" CHECK(("CLUB_JOIN_REQUESTS"."status"='PENDING' OR "CLUB_JOIN_REQUESTS"."status"='APPROVED' OR "CLUB_JOIN_REQUESTS"."status"='REJECTED'))
+	CONSTRAINT "CK_CLUB_JOIN_REQUESTS_status" CHECK(("CLUB_JOIN_REQUESTS"."status"='PENDING' OR "CLUB_JOIN_REQUESTS"."status"='APPROVED' OR "CLUB_JOIN_REQUESTS"."status"='REJECTED' OR "CLUB_JOIN_REQUESTS"."status"='CANCELLED'))
 );--> statement-breakpoint
 CREATE INDEX `IX_CJR_club_status` ON `CLUB_JOIN_REQUESTS` (`club_id`,`status`);--> statement-breakpoint
 CREATE INDEX `IX_CJR_user_id` ON `CLUB_JOIN_REQUESTS` (`user_id`);--> statement-breakpoint

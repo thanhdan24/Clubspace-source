@@ -28,8 +28,9 @@ import {
 const transactionForm = z.object({
   transaction_type: z.enum(["INCOME", "EXPENSE"]),
   category_id: idSchema,
-  event_id: idSchema.nullable(),
-  related_member_id: idSchema.nullable(),
+  event_id: idSchema.nullable().optional().default(null),
+  related_member_id: idSchema.nullable().optional().default(null),
+  replaces_transaction_id: idSchema.nullable().optional().default(null),
   amount: z.coerce
     .number()
     .positive("Số tiền phải lớn hơn 0.")
@@ -56,6 +57,18 @@ async function validate(c: Context, b: any) {
   if (b.event_id) await scoped(c, "EVENTS", "event_id", b.event_id);
   if (b.related_member_id)
     await scoped(c, "CLUB_MEMBERS", "club_member_id", b.related_member_id);
+  if (b.replaces_transaction_id) {
+    const rep = await scoped(
+      c,
+      "FINANCIAL_TRANSACTIONS",
+      "transaction_id",
+      b.replaces_transaction_id,
+    );
+    fail(
+      rep.transaction_status === "CANCELLED",
+      "Chỉ được lập giao dịch điều chỉnh thay thế cho giao dịch đã bị hủy.",
+    );
+  }
   if (b.evidence_url)
     fail(
       /^https:\/\//.test(b.evidence_url) ||
@@ -125,7 +138,7 @@ export async function financeRoute(c: Context, path: string, req: Request) {
     readPermit(c, "LEADER", "OFFICER", "TREASURER");
     const { q, status } = paging(url);
     let sql =
-      "SELECT t.*,cat.category_name,e.event_name,u.full_name AS creator_name,ap.full_name AS approver_name FROM FINANCIAL_TRANSACTIONS t JOIN FINANCE_CATEGORIES cat ON cat.category_id=t.category_id JOIN USERS u ON u.user_id=t.created_by LEFT JOIN USERS ap ON ap.user_id=t.approved_by LEFT JOIN EVENTS e ON e.event_id=t.event_id WHERE t.club_id=? AND t.description LIKE ?";
+      "SELECT t.*,cat.category_name,e.event_name,COALESCE(e.planned_budget,0) AS event_planned_budget,u.full_name AS creator_name,ap.full_name AS approver_name FROM FINANCIAL_TRANSACTIONS t JOIN FINANCE_CATEGORIES cat ON cat.category_id=t.category_id JOIN USERS u ON u.user_id=t.created_by LEFT JOIN USERS ap ON ap.user_id=t.approved_by LEFT JOIN EVENTS e ON e.event_id=t.event_id WHERE t.club_id=? AND t.description LIKE ?";
     const p: any[] = [c.club, "%" + q + "%"];
     for (const [param, col] of [
       ["status", "transaction_status"],
@@ -224,7 +237,80 @@ export async function financeRoute(c: Context, path: string, req: Request) {
     "transaction_id",
     Number(m[1]),
   );
-  if (method === "GET") return json(old);
+  if (method === "GET") {
+    let event_budget: any = null;
+    if (old.event_id) {
+      const ev = await one(
+        c.db,
+        `SELECT e.event_id, e.event_name, e.event_status, COALESCE(e.planned_budget, 0) AS planned_budget,
+                COALESCE(SUM(CASE WHEN t.transaction_type='EXPENSE' AND t.transaction_status='POSTED' THEN t.amount ELSE 0 END), 0) AS actual_expense,
+                COALESCE(SUM(CASE WHEN t.transaction_type='EXPENSE' AND t.transaction_status IN ('PENDING_APPROVAL','APPROVED') AND t.transaction_id<>? THEN t.amount ELSE 0 END), 0) AS other_pending_expense,
+                COALESCE(SUM(CASE WHEN t.transaction_type='INCOME' AND t.transaction_status='POSTED' THEN t.amount ELSE 0 END), 0) AS actual_income
+         FROM EVENTS e
+         LEFT JOIN FINANCIAL_TRANSACTIONS t ON t.event_id=e.event_id
+         WHERE e.event_id=?
+         GROUP BY e.event_id, e.event_name, e.event_status, e.planned_budget`,
+        [old.transaction_id, old.event_id],
+      );
+      if (ev) {
+        const planned = Number(ev.planned_budget || 0);
+        const actual = Number(ev.actual_expense || 0);
+        const otherPending = Number(ev.other_pending_expense || 0);
+        const thisExpense =
+          old.transaction_type === "EXPENSE" &&
+          !["POSTED", "REJECTED", "CANCELLED"].includes(old.transaction_status)
+            ? Number(old.amount || 0)
+            : 0;
+        const projected = actual + otherPending + thisExpense;
+        event_budget = {
+          event_id: ev.event_id,
+          event_name: ev.event_name,
+          event_status: ev.event_status,
+          planned_budget: planned,
+          actual_expense: actual,
+          other_pending_expense: otherPending,
+          projected_expense: projected,
+          actual_income: Number(ev.actual_income || 0),
+          deficit_amount: Math.max(0, actual - planned),
+          projected_deficit: Math.max(0, projected - planned),
+          is_over_budget: projected > planned,
+        };
+      }
+    }
+    let replaces_transaction: any = null;
+    if (old.replaces_transaction_id) {
+      replaces_transaction = await one(
+        c.db,
+        "SELECT transaction_id, description, amount, transaction_type, transaction_date FROM FINANCIAL_TRANSACTIONS WHERE transaction_id=? AND club_id=?",
+        [old.replaces_transaction_id, c.club],
+      );
+    }
+    const replaced_by = await all(
+      c.db,
+      "SELECT transaction_id, description, amount, transaction_status, transaction_date FROM FINANCIAL_TRANSACTIONS WHERE replaces_transaction_id=? AND club_id=? ORDER BY transaction_id DESC",
+      [old.transaction_id, c.club],
+    );
+    let cancellation_reason: string | null = null;
+    if (old.transaction_status === "CANCELLED") {
+      const logRow = await one(
+        c.db,
+        "SELECT new_value FROM AUDIT_LOGS WHERE entity_name='FINANCIAL_TRANSACTIONS' AND entity_id=? AND action_code='TRANSACTION_REASON' ORDER BY audit_id DESC LIMIT 1",
+        [String(old.transaction_id)],
+      );
+      if (logRow?.new_value) {
+        try {
+          cancellation_reason = JSON.parse(logRow.new_value).reason || null;
+        } catch {}
+      }
+    }
+    return json({
+      ...old,
+      event_budget,
+      replaces_transaction,
+      replaced_by,
+      cancellation_reason,
+    });
+  }
   if (!m[2] && method === "PATCH") {
     permit(c, "TREASURER");
     fail(
@@ -347,6 +433,16 @@ export async function financeRoute(c: Context, path: string, req: Request) {
         clubId: c.club,
         title: `Đề xuất chi tiêu #${old.transaction_id}: ${b.action === "approve" ? "Đã được phê duyệt" : "Bị từ chối"}`,
         content: `Khoản chi "${old.description}" (${Number(old.amount).toLocaleString("vi-VN")} đ) đã ${b.action === "approve" ? "được Chủ nhiệm phê duyệt." : "bị từ chối" + (b.reason ? `: ${b.reason}` : ".")}`,
+        type: "FINANCE",
+        linkUrl: "finance",
+      });
+    }
+    if (b.action === "cancel" && old.created_by !== c.user.user_id) {
+      await createNotification(c.db, {
+        userId: old.created_by,
+        clubId: c.club,
+        title: `Giao dịch #${old.transaction_id} đã bị hủy`,
+        content: `Giao dịch "${old.description}" (${Number(old.amount).toLocaleString("vi-VN")} đ) đã bị hủy${b.reason ? `: ${b.reason}` : ""}. Bạn có thể lập bút toán điều chỉnh thay thế nếu cần.`,
         type: "FINANCE",
         linkUrl: "finance",
       });

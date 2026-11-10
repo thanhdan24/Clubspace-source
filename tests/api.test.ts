@@ -2217,3 +2217,552 @@ test("Member code auto-generation, prefix configuration by leader, and member st
     .run();
 });
 
+test("Event budget planning, actual spend, and deficit tracking flow works end-to-end", async () => {
+  // 1. Officer creates a draft event with planned_budget = 1,000,000 VND
+  const createEv = await call(
+    "OFFICER",
+    "events",
+    "POST",
+    {
+      event_name: "Hội thảo AI & Kiểm soát Ngân sách",
+      event_type: "WORKSHOP",
+      scope: "PUBLIC",
+      location: "Hội trường A2",
+      start_at: future(20),
+      end_at: future(20, "11:00"),
+      registration_deadline: future(19),
+      capacity: 100,
+      planned_budget: 1000000,
+      approval_required: 0,
+    },
+    1,
+  );
+  assert.equal(createEv.status, 201);
+  const evId = createEv.data.event_id;
+
+  // 2. Check draft event detail budget metrics before any expenses
+  const detailDraft = await call("LEADER", `events/${evId}`, "GET", undefined, 1);
+  assert.equal(detailDraft.status, 200);
+  assert.equal(Number(detailDraft.data.event.planned_budget), 1000000);
+  assert.equal(detailDraft.data.budget.planned_budget, 1000000);
+  assert.equal(detailDraft.data.budget.actual_expense, 0);
+  assert.equal(detailDraft.data.budget.deficit_amount, 0);
+  assert.equal(detailDraft.data.budget.budget_status, "WITHIN_BUDGET");
+  assert.equal(detailDraft.data.budget.is_over_budget, false);
+
+  // 3. Leader approves & publishes the event
+  const pubRes = await call(
+    "LEADER",
+    `events/${evId}/action`,
+    "POST",
+    { action: "publish" },
+    1,
+  );
+  assert.equal(pubRes.status, 200);
+
+  // 4. Treasurer creates an expense of 1,350,000 VND linked to this event (exceeding 1,000,000 planned budget by 350,000)
+  const expCat = sql(
+    "SELECT category_id FROM FINANCE_CATEGORIES WHERE club_id=1 AND category_type='EXPENSE' AND active_flag=1 LIMIT 1",
+  );
+  const createTx = await call(
+    "TREASURER",
+    "finance",
+    "POST",
+    {
+      category_id: expCat.category_id,
+      event_id: evId,
+      transaction_type: "EXPENSE",
+      amount: 1350000,
+      transaction_date: new Date().toISOString().slice(0, 10),
+      description: "Chi thuê âm thanh ánh sáng và hậu cần sự kiện AI",
+      evidence_url: "https://example.com/invoice-ai.pdf",
+    },
+    1,
+  );
+  assert.equal(createTx.status, 201);
+  const txId = createTx.data.transaction_id;
+
+  // 5. Submit for approval -> check projected deficit in finance detail & event detail
+  assert.equal(
+    (
+      await call(
+        "TREASURER",
+        `finance/${txId}/action`,
+        "POST",
+        { action: "submit" },
+        1,
+      )
+    ).status,
+    200,
+  );
+
+  const txDetail = await call("LEADER", `finance/${txId}`, "GET", undefined, 1);
+  assert.equal(txDetail.status, 200);
+  assert.ok(txDetail.data.event_budget);
+  assert.equal(txDetail.data.event_budget.planned_budget, 1000000);
+  assert.equal(txDetail.data.event_budget.projected_expense, 1350000);
+  assert.equal(txDetail.data.event_budget.projected_deficit, 350000);
+  assert.equal(txDetail.data.event_budget.is_over_budget, true);
+
+  const detailPending = await call("LEADER", `events/${evId}`, "GET", undefined, 1);
+  assert.equal(detailPending.data.budget.pending_expense, 1350000);
+  assert.equal(detailPending.data.budget.projected_deficit_amount, 350000);
+  assert.equal(detailPending.data.budget.budget_status, "PROJECTED_OVER_BUDGET");
+
+  // 6. Leader approves and Treasurer posts the expense
+  assert.equal(
+    (
+      await call(
+        "LEADER",
+        `finance/${txId}/action`,
+        "POST",
+        { action: "approve" },
+        1,
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await call(
+        "TREASURER",
+        `finance/${txId}/action`,
+        "POST",
+        { action: "post" },
+        1,
+      )
+    ).status,
+    200,
+  );
+
+  // 7. Verify actual spend and deficit in Event Detail, Events List, and Reports
+  const detailPosted = await call("LEADER", `events/${evId}`, "GET", undefined, 1);
+  assert.equal(detailPosted.status, 200);
+  assert.equal(detailPosted.data.budget.actual_expense, 1350000);
+  assert.equal(detailPosted.data.budget.deficit_amount, 350000);
+  assert.equal(detailPosted.data.budget.budget_variance, -350000);
+  assert.equal(detailPosted.data.budget.budget_status, "OVER_BUDGET");
+  assert.equal(detailPosted.data.budget.is_over_budget, true);
+  assert.equal(detailPosted.data.transactions.length, 1);
+
+  const reportRes = await call(
+    "LEADER",
+    `reports?type=events&event=${evId}`,
+    "GET",
+    undefined,
+    1,
+  );
+  assert.equal(reportRes.status, 200);
+  const repEv = reportRes.data.events.find((x: any) => x.event_id === evId);
+  assert.ok(repEv);
+  assert.equal(Number(repEv.planned_budget), 1000000);
+  assert.equal(Number(repEv.actual_expense), 1350000);
+  assert.equal(Number(repEv.deficit_amount), 350000);
+  assert.equal(repEv.budget_status, "OVER_BUDGET");
+});
+
+test("Replacement transaction (BR-15), join request withdrawal, leader handover, and draft event notifications work end-to-end", async () => {
+  // 1. Replacement transaction flow (BR-15):
+  // Cannot replace a non-cancelled transaction (e.g. transaction 1 is POSTED)
+  const badReplace = await call(
+    "TREASURER",
+    "finance",
+    "POST",
+    {
+      transaction_type: "INCOME",
+      category_id: 1,
+      replaces_transaction_id: 1,
+      amount: 100000,
+      transaction_date: new Date().toISOString().slice(0, 10),
+      description: "Thử thay thế giao dịch chưa hủy",
+    },
+    1,
+  );
+  assert.equal(badReplace.status, 400);
+
+  // Create, post, and cancel an income transaction, then create a replacement transaction referencing it
+  const origTx = await call(
+    "TREASURER",
+    "finance",
+    "POST",
+    {
+      transaction_type: "INCOME",
+      category_id: 1,
+      amount: 250000,
+      transaction_date: new Date().toISOString().slice(0, 10),
+      description: "Thu hội phí ghi nhầm số tiền",
+    },
+    1,
+  );
+  assert.equal(origTx.status, 201);
+  const origTxId = origTx.data.transaction_id;
+
+  assert.equal(
+    (
+      await call(
+        "TREASURER",
+        `finance/${origTxId}/action`,
+        "POST",
+        { action: "post" },
+        1,
+      )
+    ).status,
+    200,
+  );
+
+  assert.equal(
+    (
+      await call(
+        "LEADER",
+        `finance/${origTxId}/action`,
+        "POST",
+        { action: "cancel", reason: "Ghi nhầm 200k thành 250k" },
+        1,
+      )
+    ).status,
+    200,
+  );
+
+  // Verify cancellation_reason is returned in GET /api/finance/:id
+  const cancelledDetail = await call(
+    "LEADER",
+    `finance/${origTxId}`,
+    "GET",
+    undefined,
+    1,
+  );
+  assert.equal(cancelledDetail.status, 200);
+  assert.equal(
+    cancelledDetail.data.cancellation_reason,
+    "Ghi nhầm 200k thành 250k",
+  );
+
+  // Create replacement transaction referencing origTxId
+  const repTx = await call(
+    "TREASURER",
+    "finance",
+    "POST",
+    {
+      transaction_type: "INCOME",
+      category_id: 1,
+      replaces_transaction_id: origTxId,
+      amount: 200000,
+      transaction_date: new Date().toISOString().slice(0, 10),
+      description: "[Điều chỉnh] Thu hội phí đúng 200k",
+    },
+    1,
+  );
+  assert.equal(repTx.status, 201);
+  const repTxId = repTx.data.transaction_id;
+
+  const repDetail = await call(
+    "TREASURER",
+    `finance/${repTxId}`,
+    "GET",
+    undefined,
+    1,
+  );
+  assert.equal(repDetail.status, 200);
+  assert.equal(repDetail.data.replaces_transaction.transaction_id, origTxId);
+
+  const origAfterRep = await call(
+    "TREASURER",
+    `finance/${origTxId}`,
+    "GET",
+    undefined,
+    1,
+  );
+  assert.equal(origAfterRep.data.replaced_by.length, 1);
+  assert.equal(origAfterRep.data.replaced_by[0].transaction_id, repTxId);
+
+  // 2. Student self-withdrawal of PENDING join request (State Machine #7: PENDING -> CANCELLED)
+  const joinRes = await call(
+    "MEMBER",
+    "clubs/2/join",
+    "POST",
+    { message: "Em xin vào CLB Tiếng Anh" },
+    1,
+  );
+  assert.equal(joinRes.status, 201);
+  const reqId = joinRes.data.request_id;
+
+  // Another user cannot cancel someone else's join request
+  const wrongCancel = await call(
+    "OFFICER",
+    `join-requests/${reqId}/cancel`,
+    "POST",
+    {},
+    1,
+  );
+  assert.equal(wrongCancel.status, 403);
+
+  // Applicant cancels their own pending request
+  const selfCancel = await call(
+    "MEMBER",
+    `join-requests/${reqId}/cancel`,
+    "POST",
+    { reason: "Muốn cập nhật lại CV đính kèm" },
+    1,
+  );
+  assert.equal(selfCancel.status, 200);
+
+  const checkCancelledReq = sql(
+    "SELECT status, review_reason FROM CLUB_JOIN_REQUESTS WHERE request_id=?",
+    reqId,
+  );
+  assert.equal(checkCancelledReq.status, "CANCELLED");
+
+  // Applicant can now re-apply to Club 2 after cancelling
+  const reJoinRes = await call(
+    "MEMBER",
+    "clubs/2/join",
+    "POST",
+    { message: "Em nộp lại đơn mới kèm CV" },
+    1,
+  );
+  assert.equal(reJoinRes.status, 201);
+  // Clean up by cancelling the second request too
+  await call(
+    "MEMBER",
+    `join-requests/${reJoinRes.data.request_id}/cancel`,
+    "POST",
+    {},
+    1,
+  );
+
+  // 3. Leader can appoint a co-leader / successor LEADER within their club (UC-02 & BR-24)
+  const assignLeader = await call(
+    "LEADER",
+    "roles",
+    "POST",
+    {
+      user_id: 3, // officer_it (active member in Club 1)
+      role_code: "LEADER",
+      active_flag: 1,
+    },
+    1,
+  );
+  assert.equal(assignLeader.status, 200);
+
+  // Remove the co-leader role afterwards to restore state
+  const removeCoLeader = await call(
+    "LEADER",
+    "roles",
+    "POST",
+    {
+      user_id: 3,
+      role_code: "LEADER",
+      active_flag: 0,
+    },
+    1,
+  );
+  assert.equal(removeCoLeader.status, 200);
+});
+
+test("35. Account profile editing by Admin, reactivating cancelled event participant, re-joining after leaving club, and operational tasks on dashboard", async () => {
+  // 1. Admin edits account profile details (PATCH /api/accounts/:id)
+  const updateAcc = await call("ADMIN", "accounts/5", "PATCH", {
+    full_name: "Phạm Minh Quân (Đã cập nhật)",
+    student_code: "SV230101_UPD",
+    email: "quan.updated@student.edu.vn",
+    phone: "0988776655",
+    faculty: "Công nghệ thông tin",
+    class_name: "CNTT-K23A",
+    account_status: "ACTIVE",
+  });
+  assert.equal(updateAcc.status, 200);
+  const user5 = sql(
+    "SELECT full_name, student_code, email, phone, faculty, class_name FROM USERS WHERE user_id=5",
+  );
+  assert.equal(user5.full_name, "Phạm Minh Quân (Đã cập nhật)");
+  assert.equal(user5.student_code, "SV230101_UPD");
+  assert.equal(user5.email, "quan.updated@student.edu.vn");
+  assert.equal(user5.phone, "0988776655");
+
+  // Restore original student_code for user 5
+  await call("ADMIN", "accounts/5", "PATCH", {
+    full_name: "Phạm Minh Quân",
+    student_code: "SV230101",
+    email: "member01@clubspace.edu.vn",
+  });
+
+  // 2. Reactivating a CANCELLED event registration via POST /api/events/:id/participants
+  const evRes = await call(
+    "OFFICER",
+    "events",
+    "POST",
+    {
+      event_name: "Hội thảo Reactivate Participant",
+      event_type: "WORKSHOP",
+      description: "Kiểm thử bổ sung lại người tham dự từng hủy đăng ký",
+      start_at: future(20),
+      end_at: future(20, "11:00"),
+      registration_deadline: future(19),
+      location: "Phòng B101",
+      capacity: 20,
+      planned_budget: 1000000,
+      approval_required: 0,
+      scope: "INTERNAL",
+    },
+    1,
+  );
+  assert.equal(evRes.status, 201);
+  const evId = evRes.data.event_id;
+
+  // Check dashboard shows draft_events for LEADER
+  const dashDraft = await call("LEADER", "dashboard", "GET", undefined, 1);
+  assert.equal(dashDraft.status, 200);
+  assert.ok(
+    Array.isArray(dashDraft.data.draft_events) &&
+      dashDraft.data.draft_events.some((e: any) => e.event_id === evId),
+  );
+
+  // Publish event -> Member registers -> Member cancels -> Close event -> Officer re-adds Member via participants
+  await call("LEADER", `events/${evId}/action`, "POST", { action: "publish" }, 1);
+  const reg = await call(
+    "MEMBER",
+    `events/${evId}/registration`,
+    "POST",
+    { action: "register" },
+    1,
+  );
+  assert.equal(reg.status, 201);
+  const cancelReg = await call(
+    "MEMBER",
+    `events/${evId}/registration`,
+    "POST",
+    { action: "cancel" },
+    1,
+  );
+  assert.equal(cancelReg.status, 200);
+
+  await call(
+    "OFFICER",
+    `events/${evId}/action`,
+    "POST",
+    {
+      action: "close",
+      reason: "Chốt danh sách",
+    },
+    1,
+  );
+
+  const meRes = await call("MEMBER", "me");
+  const memberUserId = meRes.data.user.user_id;
+  const memberRow = sql(
+    "SELECT club_member_id FROM CLUB_MEMBERS WHERE club_id=1 AND user_id=?",
+    memberUserId,
+  );
+  const reAdd = await call(
+    "OFFICER",
+    `events/${evId}/participants`,
+    "POST",
+    {
+      club_member_id: memberRow.club_member_id,
+      reason: "Đã sắp xếp được thời gian tham dự lại",
+    },
+    1,
+  );
+  assert.equal(reAdd.status, 201);
+  const updatedReg = sql(
+    "SELECT registration_status, cancelled_at FROM EVENT_REGISTRATIONS WHERE event_id=? AND club_member_id=?",
+    evId,
+    memberRow.club_member_id,
+  );
+  assert.equal(updatedReg.registration_status, "CONFIRMED");
+  assert.equal(updatedReg.cancelled_at, null);
+
+  // 3. Re-joining a club after leaving (LEFT -> ACTIVE clears leave_date & logs history) + my_requests in GET /api/clubs
+  const join1 = await call(
+    "MEMBER",
+    "clubs/2/join",
+    "POST",
+    { message: "Xin gia nhập CLB Tiếng Anh lần 1" },
+    1,
+  );
+  assert.equal(join1.status, 201);
+
+  const clubsRes = await call("MEMBER", "clubs", "GET", undefined, 1);
+  assert.equal(clubsRes.status, 200);
+  assert.ok(
+    Array.isArray(clubsRes.data.my_requests) &&
+      clubsRes.data.my_requests.some(
+        (r: any) => r.request_id === join1.data.request_id,
+      ),
+  );
+
+  // Member leaves Club 1 -> re-applies to Club 1 -> Leader approves
+  const leaveClub1 = await call(
+    "MEMBER",
+    "clubs/1/leave",
+    "POST",
+    { reason: "Tạm nghỉ kỳ trước" },
+    1,
+  );
+  assert.equal(leaveClub1.status, 200);
+
+  const reJoinClub1 = await call(
+    "MEMBER",
+    "clubs/1/join",
+    "POST",
+    { message: "Xin tái gia nhập CLB CNTT" },
+    0,
+  );
+  assert.equal(reJoinClub1.status, 201);
+
+  // Check dashboard shows pending_join_requests for LEADER
+  const dashPendingJr = await call("LEADER", "dashboard", "GET", undefined, 1);
+  assert.equal(dashPendingJr.status, 200);
+  assert.ok(
+    Array.isArray(dashPendingJr.data.pending_join_requests) &&
+      dashPendingJr.data.pending_join_requests.some(
+        (r: any) => r.request_id === reJoinClub1.data.request_id,
+      ),
+  );
+
+  const approveReJoin = await call(
+    "LEADER",
+    `join-requests/${reJoinClub1.data.request_id}`,
+    "PATCH",
+    {
+      status: "APPROVED",
+      department_name: "Ban Chuyên môn",
+      position_name: "Thành viên",
+      reason: "Chào mừng quay trở lại CLB",
+    },
+    1,
+  );
+  assert.equal(approveReJoin.status, 200);
+
+  const rejoinedMember = sql(
+    "SELECT member_status, leave_date FROM CLUB_MEMBERS WHERE club_id=1 AND user_id=?",
+    memberUserId,
+  );
+  assert.equal(rejoinedMember.member_status, "ACTIVE");
+  assert.equal(rejoinedMember.leave_date, null);
+
+  const historyRow = sql(
+    "SELECT old_status, new_status FROM MEMBER_STATUS_HISTORY WHERE club_member_id=? ORDER BY history_id DESC LIMIT 1",
+    memberRow.club_member_id,
+  );
+  assert.equal(historyRow.old_status, "LEFT");
+  assert.equal(historyRow.new_status, "ACTIVE");
+
+  const notifRow = sql(
+    "SELECT link_url FROM NOTIFICATIONS WHERE user_id=? AND type='JOIN_REQUEST' ORDER BY notification_id DESC LIMIT 1",
+    memberUserId,
+  );
+  assert.equal(notifRow.link_url, "dashboard");
+
+  // Clean up join1 on Club 2
+  await call(
+    "MEMBER",
+    `join-requests/${join1.data.request_id}/cancel`,
+    "POST",
+    {},
+    1,
+  );
+});
+
+
+

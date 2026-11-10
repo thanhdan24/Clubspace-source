@@ -23,6 +23,7 @@ import {
   XCircle,
   ChevronLeft,
   ChevronRight,
+  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -46,6 +47,7 @@ import {
   dateText,
   localNow,
   num,
+  money,
   SectionHeader,
   EmptyState,
   ActionButton,
@@ -131,6 +133,13 @@ function EventEditor({ event = {}, onClose, onSaved }: any) {
       help: "Để trống nếu không giới hạn.",
     },
     {
+      name: "planned_budget",
+      label: "Ngân sách kế hoạch (VND)",
+      type: "number",
+      min: 0,
+      help: "Dự toán kinh phí trình Chủ nhiệm phê duyệt trước khi công bố (nhập 0 nếu không dùng kinh phí).",
+    },
+    {
       name: "approval_required",
       label: "Duyệt đăng ký",
       type: "select",
@@ -151,6 +160,7 @@ function EventEditor({ event = {}, onClose, onSaved }: any) {
         end_at: start + "T11:00",
         registration_deadline: start + "T07:00",
         capacity: "",
+        planned_budget: event.planned_budget ?? 0,
         approval_required: 0,
         ...event,
       }}
@@ -169,7 +179,14 @@ function EventEditor({ event = {}, onClose, onSaved }: any) {
           throw new Error("Hạn đăng ký phải từ ngày hôm nay trở đi.");
         const out = await mutate(
           event.event_id ? "events/" + event.event_id : "events",
-          { ...v, capacity: v.capacity ? Number(v.capacity) : null },
+          {
+            ...v,
+            capacity: v.capacity ? Number(v.capacity) : null,
+            planned_budget:
+              v.planned_budget !== "" && v.planned_budget !== undefined
+                ? Number(v.planned_budget)
+                : 0,
+          },
           event.event_id ? "PATCH" : "POST",
         );
         if (onSaved) onSaved(out);
@@ -517,6 +534,43 @@ export function Events() {
                   title: "XÁC NHẬN",
                   render: (r) => `${r.confirmed_count} / ${r.capacity || "∞"}`,
                 },
+                ...(can("ADMIN", "LEADER", "OFFICER", "TREASURER")
+                  ? [
+                      {
+                        key: "planned_budget",
+                        title: "NGÂN SÁCH & THỰC CHI",
+                        render: (r: Row) => {
+                          const planned = Number(r.planned_budget || 0);
+                          const actual = Number(r.actual_expense || 0);
+                          const deficit = Number(r.deficit_amount || 0);
+                          return (
+                            <div className="text-xs">
+                              <div className="font-semibold text-slate-800">
+                                {money(actual)} / {money(planned)}
+                              </div>
+                              {deficit > 0 ? (
+                                <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold">
+                                  Thâm hụt: +{money(deficit)}
+                                </span>
+                              ) : r.budget_status === "PROJECTED_OVER_BUDGET" ? (
+                                <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">
+                                  Sắp vượt dự toán
+                                </span>
+                              ) : planned > 0 ? (
+                                <span className="text-emerald-700 font-medium">
+                                  Còn dư {money(Math.max(0, planned - actual))}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">
+                                  Không dùng ngân sách
+                                </span>
+                              )}
+                            </div>
+                          );
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   key: "scope",
                   title: "PHẠM VI",
@@ -632,6 +686,31 @@ export function Events() {
                               : 0
                           }
                         />
+                        {can("ADMIN", "LEADER", "OFFICER", "TREASURER") && (
+                          <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                            <span className="text-slate-600 flex items-center gap-1">
+                              <Wallet size={13} className="text-slate-400" />
+                              Thực chi:{" "}
+                              <strong className="text-slate-800">
+                                {money(e.actual_expense || 0)}
+                              </strong>{" "}
+                              / {money(e.planned_budget || 0)}
+                            </span>
+                            {Number(e.deficit_amount || 0) > 0 ? (
+                              <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 font-semibold shrink-0">
+                                Thâm hụt +{money(e.deficit_amount)}
+                              </span>
+                            ) : e.budget_status === "PROJECTED_OVER_BUDGET" ? (
+                              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold shrink-0">
+                                Sắp vượt dự toán
+                              </span>
+                            ) : Number(e.planned_budget || 0) > 0 ? (
+                              <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium shrink-0">
+                                Trong dự toán
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
                         <div className="event-card-footer">
                           <small>
                             {isCancelled
@@ -949,12 +1028,24 @@ export function EventDetail({ id }: any) {
     [confirm, setConfirm] = useState<Row | null>(null);
   const e = r.data?.event,
     s = r.data?.stats,
-    mine = r.data?.mine;
+    mine = r.data?.mine,
+    budget = r.data?.budget,
+    transactions: Row[] = r.data?.transactions || [];
   const isHostClub = e && e.club_id === club;
   const actions: any = {
     DRAFT: [["publish", "Công bố sự kiện"]],
-    OPEN: [["close", "Chốt danh sách"]],
-    CLOSED: [["complete", "Khóa & hoàn tất"]],
+    OPEN: [
+      ["close", "Chốt danh sách"],
+      ...(e && e.start_at <= localNow()
+        ? [["start", "Bắt đầu sự kiện"]]
+        : []),
+    ],
+    CLOSED: [
+      ...(e && e.start_at <= localNow()
+        ? [["start", "Bắt đầu sự kiện"]]
+        : []),
+      ["complete", "Khóa & hoàn tất"],
+    ],
     ONGOING: [["complete", "Khóa & hoàn tất"]],
   };
   return (
@@ -1012,6 +1103,20 @@ export function EventDetail({ id }: any) {
                   ĐÃ THAM DỰ<strong>{s.attended_count} người</strong>
                 </span>
               </div>
+              {staff && isHostClub && budget && (
+                <div>
+                  <Wallet />
+                  <span>
+                    THỰC CHI / NGÂN SÁCH KẾ HOẠCH
+                    <strong
+                      className={budget.is_over_budget ? "text-rose-600" : ""}
+                    >
+                      {money(budget.actual_expense)} /{" "}
+                      {money(budget.planned_budget)}
+                    </strong>
+                  </span>
+                </div>
+              )}
             </div>
             <Tabs value={tab} onValueChange={setTab} className="page-tabs">
               <TabsList variant="line">
@@ -1024,6 +1129,18 @@ export function EventDetail({ id }: any) {
                 )}
                 {staff && isHostClub && (
                   <TabsTrigger value="attendance">Điểm danh</TabsTrigger>
+                )}
+                {staff && isHostClub && (
+                  <TabsTrigger value="budget">
+                    Ngân sách & Thu chi{" "}
+                    {budget?.is_over_budget ? (
+                      <span className="tab-count bg-rose-100 text-rose-700">
+                        Thâm hụt
+                      </span>
+                    ) : (
+                      <span className="tab-count">{transactions.length}</span>
+                    )}
+                  </TabsTrigger>
                 )}
               </TabsList>
             </Tabs>
@@ -1046,6 +1163,20 @@ export function EventDetail({ id }: any) {
                       ["Bắt đầu", dateText(e.start_at, true)],
                       ["Kết thúc", dateText(e.end_at, true)],
                       ["Hạn đăng ký", dateText(e.registration_deadline, true)],
+                      [
+                        "Ngân sách kế hoạch",
+                        money(e.planned_budget || 0),
+                      ],
+                      ...(staff && isHostClub && budget
+                        ? [
+                            [
+                              "Thực chi hiện tại",
+                              budget.is_over_budget
+                                ? `${money(budget.actual_expense)} (Thâm hụt: +${money(budget.deficit_amount)})`
+                                : money(budget.actual_expense),
+                            ],
+                          ]
+                        : []),
                       [
                         "Xét duyệt",
                         e.approval_required
@@ -1140,6 +1271,66 @@ export function EventDetail({ id }: any) {
                   {can("OFFICER", "LEADER") && isHostClub && (
                     <section className="panel event-controls">
                       <SectionHeader title="Điều hành sự kiện" />
+                      {e.event_status === "DRAFT" && budget && (
+                        <div
+                          className={`inline-notice mb-3 ${
+                            budget.exceeds_club_fund ? "danger" : ""
+                          }`}
+                        >
+                          <Wallet size={16} className="shrink-0" />
+                          <div className="text-xs leading-relaxed">
+                            <strong className="block text-sm mb-0.5">
+                              Dự toán ngân sách trình duyệt:{" "}
+                              {money(budget.planned_budget)}
+                            </strong>
+                            {budget.exceeds_club_fund ? (
+                              <span>
+                                Cảnh báo: Ngân sách kế hoạch vượt quá số dư quỹ
+                                hiện tại của CLB ({money(budget.club_balance)}),
+                                thiếu hụt{" "}
+                                <strong>
+                                  {money(
+                                    budget.planned_budget - budget.club_balance,
+                                  )}
+                                </strong>
+                                . Cần huy động thêm tài trợ/thu phí hoặc điều
+                                chỉnh giảm dự toán.
+                              </span>
+                            ) : (
+                              <span>
+                                Quỹ CLB hiện có{" "}
+                                <strong>{money(budget.club_balance)}</strong> —
+                                đủ khả năng đảm bảo ngân sách kế hoạch cho sự
+                                kiện này.
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {budget?.is_over_budget && (
+                        <div className="inline-notice danger mb-3">
+                          <AlertCircle size={16} className="shrink-0" />
+                          <div className="text-xs leading-relaxed">
+                            <strong className="block text-sm mb-0.5">
+                              Sự kiện đang thâm hụt ngân sách:{" "}
+                              +{money(budget.deficit_amount)}
+                            </strong>
+                            <span>
+                              Thực chi đã ghi sổ ({money(budget.actual_expense)})
+                              vượt dự toán ban đầu ({money(budget.planned_budget)}
+                              ). Xem chi tiết tại tab{" "}
+                              <button
+                                type="button"
+                                className="underline font-semibold"
+                                onClick={() => setTab("budget")}
+                              >
+                                Ngân sách & Thu chi
+                              </button>
+                              .
+                            </span>
+                          </div>
+                        </div>
+                      )}
                       {e.event_status === "DRAFT" && !can("LEADER") && (
                         <div className="inline-notice mb-3">
                           <AlertCircle size={16} />
@@ -1218,6 +1409,237 @@ export function EventDetail({ id }: any) {
                     </section>
                   )}
                 </div>
+              </div>
+            ) : tab === "budget" && budget ? (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="panel p-5">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Ngân sách kế hoạch
+                    </span>
+                    <div className="text-2xl font-bold text-slate-900 mt-1">
+                      {money(budget.planned_budget)}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1.5">
+                      Số dư quỹ CLB hiện tại:{" "}
+                      <strong>{money(budget.club_balance)}</strong>
+                    </p>
+                  </div>
+                  <div className="panel p-5">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Thực chi (Đã xuất quỹ)
+                    </span>
+                    <div className="text-2xl font-bold text-slate-900 mt-1">
+                      {money(budget.actual_expense)}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1.5">
+                      Chờ duyệt / chờ xuất quỹ:{" "}
+                      <strong>{money(budget.pending_expense)}</strong>
+                    </p>
+                  </div>
+                  <div className="panel p-5">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      {budget.is_over_budget
+                        ? "Thâm hụt ngân sách"
+                        : "Ngân sách còn lại"}
+                    </span>
+                    <div
+                      className={`text-2xl font-bold mt-1 ${
+                        budget.is_over_budget
+                          ? "text-rose-600"
+                          : "text-emerald-600"
+                      }`}
+                    >
+                      {budget.is_over_budget
+                        ? `−${money(budget.deficit_amount)}`
+                        : money(Math.max(0, budget.budget_variance))}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1.5">
+                      {budget.is_over_budget
+                        ? `Vượt dự toán ${budget.utilization_percent}%`
+                        : budget.is_projected_over_budget
+                        ? `Dự kiến thâm hụt ${money(budget.projected_deficit_amount)} nếu duyệt hết`
+                        : `Đã sử dụng ${budget.utilization_percent}% dự toán`}
+                    </p>
+                  </div>
+                  <div className="panel p-5">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      Thu từ sự kiện
+                    </span>
+                    <div className="text-2xl font-bold text-emerald-700 mt-1">
+                      +{money(budget.actual_income)}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1.5">
+                      Chênh lệch Thu − Chi thực tế:{" "}
+                      <strong>
+                        {money(budget.actual_income - budget.actual_expense)}
+                      </strong>
+                    </p>
+                  </div>
+                </div>
+
+                <section className="panel">
+                  <SectionHeader
+                    title="Tiến độ giải ngân & Kiểm soát thâm hụt"
+                    action={
+                      <div className="flex items-center gap-2">
+                        {can("OFFICER", "LEADER") &&
+                          !["COMPLETED", "CANCELLED"].includes(
+                            e.event_status,
+                          ) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setEditing(true)}
+                            >
+                              <Pencil size={15} />
+                              Điều chỉnh dự toán
+                            </Button>
+                          )}
+                        {can("TREASURER") && (
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              navigate("finance?new&event=" + e.event_id)
+                            }
+                          >
+                            <Plus size={15} />
+                            Lập phiếu thu / chi
+                          </Button>
+                        )}
+                      </div>
+                    }
+                  />
+                  <div className="mt-2 space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span>
+                        Tổng cam kết chi (Thực chi + Chờ duyệt/xuất quỹ):{" "}
+                        <strong>{money(budget.total_committed_expense)}</strong>{" "}
+                        / Dự toán <strong>{money(budget.planned_budget)}</strong>
+                      </span>
+                      <span
+                        className={`font-semibold ${
+                          budget.is_over_budget
+                            ? "text-rose-600"
+                            : budget.is_projected_over_budget
+                            ? "text-amber-600"
+                            : "text-emerald-600"
+                        }`}
+                      >
+                        {budget.projected_utilization_percent}%
+                      </span>
+                    </div>
+                    <Progress
+                      value={Math.min(100, budget.projected_utilization_percent)}
+                    />
+                    {budget.is_over_budget && (
+                      <div className="inline-notice danger">
+                        <AlertCircle size={17} />
+                        <div>
+                          <strong>
+                            Cảnh báo thâm hụt khi triển khai thực tế:
+                          </strong>{" "}
+                          Tổng thực chi đã xuất quỹ ({money(budget.actual_expense)}
+                          ) vượt ngân sách kế hoạch được duyệt (
+                          {money(budget.planned_budget)}) là{" "}
+                          <strong>{money(budget.deficit_amount)}</strong>.
+                        </div>
+                      </div>
+                    )}
+                    {!budget.is_over_budget &&
+                      budget.is_projected_over_budget && (
+                        <div className="inline-notice">
+                          <AlertCircle size={17} />
+                          <div>
+                            <strong>Cảnh báo sắp vượt dự toán:</strong> Nếu bao
+                            gồm cả các khoản chi đang chờ duyệt/xuất quỹ (
+                            {money(budget.pending_expense)}), tổng chi sự kiện sẽ
+                            lên tới{" "}
+                            <strong>
+                              {money(budget.total_committed_expense)}
+                            </strong>{" "}
+                            (vượt dự toán{" "}
+                            <strong>
+                              {money(budget.projected_deficit_amount)}
+                            </strong>
+                            ).
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                </section>
+
+                <section className="panel">
+                  <SectionHeader title="Danh sách khoản thu / chi gắn với sự kiện" />
+                  <DataTable
+                    data={{ rows: transactions }}
+                    columns={[
+                      {
+                        key: "transaction_date",
+                        title: "NGÀY",
+                        render: (t: Row) => dateText(t.transaction_date),
+                      },
+                      {
+                        key: "description",
+                        title: "NỘI DUNG GIAO DỊCH",
+                        render: (t: Row) => (
+                          <div>
+                            <div className="font-medium text-slate-900">
+                              {t.description}
+                            </div>
+                            <small className="text-slate-500">
+                              #{String(t.transaction_id).padStart(4, "0")} ·{" "}
+                              {t.category_name}
+                            </small>
+                          </div>
+                        ),
+                      },
+                      {
+                        key: "transaction_type",
+                        title: "LOẠI",
+                        render: (t: Row) => <Badge value={t.transaction_type} />,
+                      },
+                      {
+                        key: "amount",
+                        title: "SỐ TIỀN",
+                        render: (t: Row) => (
+                          <strong
+                            className={
+                              "amount " +
+                              (t.transaction_type === "INCOME"
+                                ? "positive"
+                                : "")
+                            }
+                          >
+                            {t.transaction_type === "INCOME" ? "+" : "−"}
+                            {money(t.amount)}
+                          </strong>
+                        ),
+                      },
+                      {
+                        key: "creator_name",
+                        title: "NGƯỜI LẬP / DUYỆT",
+                        render: (t: Row) => (
+                          <div className="text-xs">
+                            <div>Lập: {t.creator_name || "—"}</div>
+                            {t.approver_name && (
+                              <div className="text-slate-500">
+                                Duyệt: {t.approver_name}
+                              </div>
+                            )}
+                          </div>
+                        ),
+                      },
+                      {
+                        key: "transaction_status",
+                        title: "TRẠNG THÁI",
+                        render: (t: Row) => (
+                          <Badge value={t.transaction_status} />
+                        ),
+                      },
+                    ]}
+                  />
+                </section>
               </div>
             ) : (
               <section className="panel">

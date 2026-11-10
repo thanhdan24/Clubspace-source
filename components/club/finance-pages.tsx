@@ -188,6 +188,25 @@ function TransactionEditor({ transaction = {}, onClose }: any) {
         })),
       ],
     },
+    ...(options.data?.cancelled_transactions?.length > 0 ||
+    transaction.replaces_transaction_id
+      ? [
+          {
+            name: "replaces_transaction_id",
+            label: "Bút toán điều chỉnh / thay thế cho giao dịch đã hủy",
+            type: "select" as const,
+            wide: true,
+            options: [
+              { value: "", label: "Giao dịch thông thường (không thay thế)" },
+              ...(options.data?.cancelled_transactions || []).map((ct: Row) => ({
+                value: ct.transaction_id,
+                label: `#${String(ct.transaction_id).padStart(4, "0")} · ${ct.description} (${money(ct.amount)})`,
+              })),
+            ],
+            help: "Theo quy tắc BR-15: Nếu giao dịch này dùng để điều chỉnh cho một bút toán đã hủy trước đó, hãy chọn giao dịch gốc tại đây.",
+          },
+        ]
+      : []),
     {
       name: "evidence_url",
       label: "Liên kết chứng từ (nếu có)",
@@ -202,6 +221,8 @@ function TransactionEditor({ transaction = {}, onClose }: any) {
       title={
         transaction.transaction_id
           ? "Cập nhật giao dịch"
+          : transaction.replaces_transaction_id
+          ? "Lập bút toán điều chỉnh / thay thế"
           : "Lập khoản thu / chi"
       }
       initial={{
@@ -232,6 +253,9 @@ function TransactionEditor({ transaction = {}, onClose }: any) {
             event_id: v.event_id ? Number(v.event_id) : null,
             related_member_id: v.related_member_id
               ? Number(v.related_member_id)
+              : null,
+            replaces_transaction_id: v.replaces_transaction_id
+              ? Number(v.replaces_transaction_id)
               : null,
             evidence_url: v.evidence_url || null,
           },
@@ -279,7 +303,12 @@ function TransactionDetail({ row, onClose, onEdit }: any) {
                     {[
                       ["Ngày giao dịch", dateText(t.transaction_date)],
                       ["Hạng mục", row.category_name],
-                      ["Sự kiện", row.event_name || "Không gắn sự kiện"],
+                      [
+                        "Sự kiện",
+                        t.event_budget?.event_name ||
+                          row.event_name ||
+                          "Không gắn sự kiện",
+                      ],
                       ["Người lập", row.creator_name],
                       ["Người duyệt", row.approver_name],
                       ["Thời điểm duyệt", dateText(t.approved_at, true)],
@@ -290,9 +319,112 @@ function TransactionDetail({ row, onClose, onEdit }: any) {
                       </div>
                     ))}
                   </dl>
+                  {t.event_budget && (
+                    <div
+                      className={`inline-notice ${
+                        t.event_budget.is_over_budget ? "danger" : ""
+                      }`}
+                    >
+                      <Wallet size={18} className="shrink-0" />
+                      <div className="text-xs leading-relaxed">
+                        <strong className="block text-sm mb-0.5">
+                          Đối soát ngân sách sự kiện:{" "}
+                          {t.event_budget.event_name}
+                        </strong>
+                        <div className="space-y-0.5">
+                          <div>
+                            Ngân sách kế hoạch:{" "}
+                            <strong>
+                              {money(t.event_budget.planned_budget)}
+                            </strong>{" "}
+                            · Đã thực chi:{" "}
+                            <strong>
+                              {money(t.event_budget.actual_expense)}
+                            </strong>
+                          </div>
+                          {t.transaction_type === "EXPENSE" &&
+                            !["POSTED", "REJECTED", "CANCELLED"].includes(
+                              t.transaction_status,
+                            ) && (
+                              <div>
+                                Tổng chi dự kiến (nếu tính cả khoản này):{" "}
+                                <strong>
+                                  {money(t.event_budget.projected_expense)}
+                                </strong>
+                              </div>
+                            )}
+                          {t.event_budget.is_over_budget ? (
+                            <div className="text-rose-700 font-semibold mt-1">
+                              Cảnh báo thâm hụt: Vượt ngân sách kế hoạch{" "}
+                              {money(
+                                t.event_budget.projected_deficit ||
+                                  t.event_budget.deficit_amount,
+                              )}
+                              !
+                            </div>
+                          ) : (
+                            <div className="text-emerald-700 font-medium mt-1">
+                              Trong hạn mức dự toán sự kiện (Còn dư:{" "}
+                              {money(
+                                Math.max(
+                                  0,
+                                  t.event_budget.planned_budget -
+                                    t.event_budget.projected_expense,
+                                ),
+                              )}
+                              ).
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {t.rejection_reason && (
                     <div className="inline-notice danger">
                       <strong>Lý do từ chối:</strong> {t.rejection_reason}
+                    </div>
+                  )}
+                  {t.transaction_status === "CANCELLED" &&
+                    t.cancellation_reason && (
+                      <div className="inline-notice danger">
+                        <strong>Lý do hủy giao dịch:</strong>{" "}
+                        {t.cancellation_reason}
+                      </div>
+                    )}
+                  {t.replaces_transaction && (
+                    <div className="inline-notice">
+                      <ReceiptText size={17} className="shrink-0" />
+                      <div className="text-xs leading-relaxed">
+                        <strong>Bút toán điều chỉnh thay thế:</strong> Giao dịch
+                        này điều chỉnh / thay thế cho giao dịch đã hủy{" "}
+                        <strong>
+                          #
+                          {String(
+                            t.replaces_transaction.transaction_id,
+                          ).padStart(4, "0")}
+                        </strong>{" "}
+                        ({t.replaces_transaction.description} ·{" "}
+                        {money(t.replaces_transaction.amount)}).
+                      </div>
+                    </div>
+                  )}
+                  {t.replaced_by?.length > 0 && (
+                    <div className="inline-notice">
+                      <ReceiptText size={17} className="shrink-0" />
+                      <div className="text-xs leading-relaxed">
+                        <strong>Đã có bút toán thay thế:</strong> Giao dịch đã
+                        hủy này đã được điều chỉnh bởi giao dịch{" "}
+                        {t.replaced_by.map((rb: Row, idx: number) => (
+                          <span key={rb.transaction_id}>
+                            {idx > 0 ? ", " : ""}
+                            <strong>
+                              #{String(rb.transaction_id).padStart(4, "0")}
+                            </strong>{" "}
+                            ({money(rb.amount)})
+                          </span>
+                        ))}
+                        .
+                      </div>
                     </div>
                   )}
                   {t.transaction_type === "EXPENSE" &&
@@ -356,6 +488,29 @@ function TransactionDetail({ row, onClose, onEdit }: any) {
                     <p className="muted">Chưa đính kèm chứng từ.</p>
                   )}
                   <div className="transaction-actions">
+                    {can("TREASURER") &&
+                      t.transaction_status === "CANCELLED" &&
+                      (!t.replaced_by || t.replaced_by.length === 0) && (
+                        <Button
+                          variant="default"
+                          onClick={() =>
+                            onEdit({
+                              transaction_type: t.transaction_type,
+                              category_id: t.category_id,
+                              event_id: t.event_id || "",
+                              related_member_id: t.related_member_id || "",
+                              replaces_transaction_id: t.transaction_id,
+                              amount: t.amount,
+                              description: `[Điều chỉnh GD #${String(
+                                t.transaction_id,
+                              ).padStart(4, "0")}] ${t.description}`,
+                            })
+                          }
+                        >
+                          <Plus size={16} />
+                          Lập bút toán điều chỉnh / thay thế
+                        </Button>
+                      )}
                     {can("TREASURER") &&
                       ["DRAFT", "REJECTED"].includes(t.transaction_status) && (
                         <Button variant="outline" onClick={() => onEdit(t)}>
@@ -533,8 +688,10 @@ export function Finance({
     r = useResource("finance?" + params),
     summary = useResource("dashboard");
   useEffect(() => {
-    if (window.location.hash.includes("?new") && can("TREASURER"))
-      setEditing({});
+    if (window.location.hash.includes("?new") && can("TREASURER")) {
+      const evMatch = window.location.hash.match(/[?&]event=(\d+)/);
+      setEditing(evMatch ? { event_id: Number(evMatch[1]) } : {});
+    }
   }, []);
   return (
     <>
@@ -1165,10 +1322,17 @@ export function Reports() {
                   icon={CalendarDays}
                 />
                 <Metric
-                  label="Lượt đăng ký"
-                  value={num(d.stats.registrations)}
-                  caption="Bao gồm các trạng thái đăng ký"
-                  icon={Users}
+                  label="Tổng dự toán sự kiện"
+                  value={money(d.stats.total_planned_budget || 0)}
+                  caption={`Thực chi: ${money(d.stats.total_event_expense || 0)}`}
+                  icon={Wallet}
+                />
+                <Metric
+                  label="Thâm hụt sự kiện"
+                  value={money(d.stats.total_event_deficit || 0)}
+                  caption={`${num(d.stats.over_budget_events || 0)} sự kiện vượt dự toán`}
+                  icon={AlertCircle}
+                  tone={Number(d.stats.total_event_deficit) > 0 ? "orange" : undefined}
                 />
                 <Metric
                   label="Tỷ lệ tham dự"
@@ -1178,7 +1342,7 @@ export function Reports() {
                 />
               </div>
               <section className="panel">
-                <SectionHeader title="Hiệu quả tổ chức sự kiện" />
+                <SectionHeader title="Hiệu quả tổ chức & Ngân sách sự kiện" />
                 <DataTable
                   data={{ rows: d.events }}
                   columns={[
@@ -1188,10 +1352,58 @@ export function Reports() {
                       title: "TRẠNG THÁI",
                       render: (r) => <Badge value={r.event_status} />,
                     },
-                    { key: "total_registrations", title: "ĐĂNG KÝ" },
+                    {
+                      key: "planned_budget",
+                      title: "NGÂN SÁCH KẾ HOẠCH",
+                      render: (r) => money(r.planned_budget || 0),
+                    },
+                    {
+                      key: "actual_expense",
+                      title: "THỰC CHI",
+                      render: (r) => (
+                        <div>
+                          <strong>{money(r.actual_expense || 0)}</strong>
+                          {Number(r.pending_expense || 0) > 0 && (
+                            <small className="block text-slate-500">
+                              Chờ duyệt: {money(r.pending_expense)}
+                            </small>
+                          )}
+                        </div>
+                      ),
+                    },
+                    {
+                      key: "deficit_amount",
+                      title: "CHÊNH LỆCH / THÂM HỤT",
+                      render: (r) => {
+                        const deficit = Number(r.deficit_amount || 0);
+                        const planned = Number(r.planned_budget || 0);
+                        const variance = Number(r.budget_variance || 0);
+                        if (deficit > 0) {
+                          return (
+                            <span className="inline-block px-2 py-0.5 rounded bg-rose-100 text-rose-700 text-xs font-semibold">
+                              Thâm hụt: +{money(deficit)}
+                            </span>
+                          );
+                        }
+                        if (r.budget_status === "PROJECTED_OVER_BUDGET") {
+                          return (
+                            <span className="inline-block px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-semibold">
+                              Sắp vượt dự toán
+                            </span>
+                          );
+                        }
+                        if (planned > 0) {
+                          return (
+                            <span className="text-emerald-700 text-xs font-semibold">
+                              Còn dư {money(Math.max(0, variance))}
+                            </span>
+                          );
+                        }
+                        return <span className="muted">—</span>;
+                      },
+                    },
                     { key: "confirmed_count", title: "XÁC NHẬN" },
                     { key: "attended_count", title: "THAM DỰ" },
-                    { key: "absent_count", title: "VẮNG" },
                     {
                       key: "attendance_rate_percent",
                       title: "TỶ LỆ",
@@ -1210,27 +1422,35 @@ export function Reports() {
 const HistoryIcon = Clock;
 
 export function ApprovalCenter() {
-  const [tab, setTab] = useState<"expenses" | "join-requests">("expenses");
+  const { navigate, mutate } = useApp();
+  const [tab, setTab] = useState<"expenses" | "join-requests" | "draft-events">(
+    "expenses",
+  );
+  const [confirmPublish, setConfirmPublish] = useState<Row | null>(null);
   const pendingExpenses = useResource(
     "finance?status=PENDING_APPROVAL&limit=1",
   );
   const pendingRequests = useResource("join-requests?status=PENDING&limit=1");
+  const draftEvents = useResource("events?status=DRAFT");
 
   const expensePendingCount = Number(pendingExpenses.data?.total || 0);
   const requestPendingCount = Number(pendingRequests.data?.total || 0);
+  const draftEventCount = Number(draftEvents.data?.total || 0);
 
   return (
     <>
       <PageTitle
         eyebrow="TRUNG TÂM PHÊ DUYỆT"
-        title="Phê duyệt chi tiêu & thành viên"
-        description="Xem xét phê duyệt các đề nghị chi tiêu tài chính và đơn xin gia nhập câu lạc bộ từ sinh viên."
+        title="Phê duyệt chi tiêu, sự kiện & thành viên"
+        description="Xem xét phê duyệt các đề nghị chi tiêu tài chính, kế hoạch sự kiện nháp và đơn xin gia nhập câu lạc bộ."
       >
         <ExportButton
           path={
             tab === "expenses"
               ? "finance?status=PENDING_APPROVAL"
-              : "join-requests?status=PENDING"
+              : tab === "join-requests"
+              ? "join-requests?status=PENDING"
+              : "events?status=DRAFT"
           }
         />
       </PageTitle>
@@ -1247,6 +1467,12 @@ export function ApprovalCenter() {
               <span className="tab-count">{expensePendingCount}</span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="draft-events">
+            Sự kiện chờ công bố
+            {draftEventCount > 0 && (
+              <span className="tab-count">{draftEventCount}</span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="join-requests">
             Đơn xin gia nhập
             {requestPendingCount > 0 && (
@@ -1258,6 +1484,90 @@ export function ApprovalCenter() {
 
       {tab === "expenses" ? (
         <Finance approvals={true} hidePageTitle={true} />
+      ) : tab === "draft-events" ? (
+        <section className="panel">
+          <SectionHeader title="Bản nháp sự kiện & dự toán ngân sách chờ Chủ nhiệm phê duyệt" />
+          <LoadState {...draftEvents} variant="table">
+            <DataTable
+              data={draftEvents.data}
+              columns={[
+                {
+                  key: "event_name",
+                  title: "SỰ KIỆN",
+                  render: (r: Row) => (
+                    <button
+                      className="table-link"
+                      onClick={() => navigate("events/" + r.event_id)}
+                    >
+                      {r.event_name}
+                    </button>
+                  ),
+                },
+                {
+                  key: "event_type",
+                  title: "LOẠI HOẠT ĐỘNG",
+                  render: (r: Row) => labels[r.event_type] || r.event_type,
+                },
+                {
+                  key: "start_at",
+                  title: "THỜI GIAN BẮT ĐẦU",
+                  render: (r: Row) => dateText(r.start_at, true),
+                },
+                {
+                  key: "planned_budget",
+                  title: "NGÂN SÁCH KẾ HOẠCH",
+                  render: (r: Row) => (
+                    <strong className="text-slate-900">
+                      {money(r.planned_budget || 0)}
+                    </strong>
+                  ),
+                },
+                {
+                  key: "scope",
+                  title: "PHẠM VI",
+                  render: (r: Row) => <Badge value={r.scope || "PUBLIC"} />,
+                },
+                {
+                  key: "actions",
+                  title: "THAO TÁC",
+                  render: (r: Row) => (
+                    <div className="row-actions">
+                      <Button
+                        size="sm"
+                        onClick={() => setConfirmPublish(r)}
+                      >
+                        <Check size={15} />
+                        Duyệt & Công bố
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate("events/" + r.event_id)}
+                      >
+                        Chi tiết <ArrowUpRight size={15} />
+                      </Button>
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          </LoadState>
+          {confirmPublish && (
+            <Confirm
+              title={`Phê duyệt & Công bố "${confirmPublish.event_name}"?`}
+              description={`Sự kiện có ngân sách dự kiến ${money(confirmPublish.planned_budget || 0)} sẽ được chuyển sang trạng thái Đang mở đăng ký (OPEN) và thông báo tới toàn bộ thành viên.`}
+              onClose={() => setConfirmPublish(null)}
+              onConfirm={async () => {
+                await mutate(
+                  `events/${confirmPublish.event_id}/action`,
+                  { action: "publish" },
+                  "POST",
+                );
+                setConfirmPublish(null);
+              }}
+            />
+          )}
+        </section>
       ) : (
         <JoinRequestsSection hideTitle={true} />
       )}

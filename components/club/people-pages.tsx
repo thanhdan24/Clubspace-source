@@ -1190,7 +1190,7 @@ export function Accounts() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      aria-label={"Cập nhật trạng thái " + r.username}
+                      aria-label={"Cập nhật thông tin " + r.username}
                       onClick={() => setEdit(r)}
                     >
                       <Pencil size={17} />
@@ -1204,11 +1204,47 @@ export function Accounts() {
       </section>
       {edit && (
         <Editor
-          title={edit.user_id ? "Trạng thái tài khoản" : "Tạo tài khoản"}
+          title={
+            edit.user_id
+              ? `Cập nhật tài khoản · @${edit.username}`
+              : "Tạo tài khoản"
+          }
           initial={edit}
           fields={
             edit.user_id
               ? [
+                  {
+                    name: "full_name",
+                    label: "Họ và tên",
+                    required: true,
+                    maxLength: 150,
+                  },
+                  {
+                    name: "student_code",
+                    label: "Mã sinh viên (MSSV)",
+                    maxLength: 30,
+                  },
+                  {
+                    name: "email",
+                    label: "Email",
+                    type: "email",
+                    maxLength: 150,
+                  },
+                  {
+                    name: "phone",
+                    label: "Số điện thoại",
+                    maxLength: 20,
+                  },
+                  {
+                    name: "faculty",
+                    label: "Khoa / Viện",
+                    maxLength: 150,
+                  },
+                  {
+                    name: "class_name",
+                    label: "Lớp",
+                    maxLength: 100,
+                  },
                   {
                     name: "account_status",
                     label: "Trạng thái tài khoản",
@@ -1232,10 +1268,25 @@ export function Accounts() {
                   },
                   {
                     name: "student_code",
-                    label: "Mã sinh viên",
+                    label: "Mã sinh viên (MSSV)",
                     maxLength: 30,
                   },
                   { name: "email", label: "Email", type: "email" },
+                  {
+                    name: "phone",
+                    label: "Số điện thoại",
+                    maxLength: 20,
+                  },
+                  {
+                    name: "faculty",
+                    label: "Khoa / Viện",
+                    maxLength: 150,
+                  },
+                  {
+                    name: "class_name",
+                    label: "Lớp",
+                    maxLength: 100,
+                  },
                   {
                     name: "password",
                     label: "Mật khẩu ban đầu",
@@ -1250,7 +1301,15 @@ export function Accounts() {
             edit.user_id
               ? mutate(
                   "accounts/" + edit.user_id,
-                  { account_status: v.account_status },
+                  {
+                    full_name: v.full_name,
+                    student_code: v.student_code,
+                    email: v.email,
+                    phone: v.phone,
+                    faculty: v.faculty,
+                    class_name: v.class_name,
+                    account_status: v.account_status,
+                  },
                   "PATCH",
                 )
               : mutate("accounts", v)
@@ -1367,7 +1426,9 @@ export function Roles() {
                 title: "",
                 render: (r) =>
                   (can("ADMIN") ||
-                    ["OFFICER", "TREASURER"].includes(r.role_code)) && (
+                    ["LEADER", "OFFICER", "TREASURER"].includes(
+                      r.role_code,
+                    )) && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1408,7 +1469,7 @@ export function Roles() {
                 ...opts(
                   can("ADMIN")
                     ? ["ADMIN", "LEADER", "OFFICER", "TREASURER", "MEMBER"]
-                    : ["OFFICER", "TREASURER"],
+                    : ["LEADER", "OFFICER", "TREASURER"],
                 ),
               ],
             },
@@ -2034,6 +2095,7 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
   const r = useResource("clubs");
   const [applyingClub, setApplyingClub] = useState<Row | null>(null);
   const [leavingClub, setLeavingClub] = useState<Row | null>(null);
+  const [cancellingClub, setCancellingClub] = useState<Row | null>(null);
   const [message, setMessage] = useState("");
   const [fileUrl, setFileUrl] = useState("");
   const [fileName, setFileName] = useState("");
@@ -2111,18 +2173,28 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                     </Button>
                   </div>
                 ) : c.join_request?.status === "PENDING" ? (
-                  <div className="flex items-center justify-between w-full text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-xl border border-amber-200">
-                    <span className="inline-flex items-center gap-1 font-medium">
-                      <Clock size={14} /> Đơn đang chờ CLB duyệt
-                      {c.join_request.file_name && (
-                        <span className="ml-1 text-[11px] text-amber-800 bg-amber-200/60 px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-0.5">
-                          <Paperclip size={11} /> Có tệp
-                        </span>
-                      )}
-                    </span>
-                    <span className="text-muted text-[11px]">
-                      {dateText(c.join_request.created_at)}
-                    </span>
+                  <div className="flex flex-col gap-2 w-full">
+                    <div className="flex items-center justify-between w-full text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-xl border border-amber-200">
+                      <span className="inline-flex items-center gap-1 font-medium">
+                        <Clock size={14} /> Đơn đang chờ CLB duyệt
+                        {c.join_request.file_name && (
+                          <span className="ml-1 text-[11px] text-amber-800 bg-amber-200/60 px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-0.5">
+                            <Paperclip size={11} /> Có tệp
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-muted text-[11px]">
+                        {dateText(c.join_request.created_at)}
+                      </span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 w-full"
+                      onClick={() => setCancellingClub(c)}
+                    >
+                      <X size={14} /> Rút đơn đăng ký
+                    </Button>
                   </div>
                 ) : c.join_request?.status === "REJECTED" ? (
                   <div className="flex flex-col gap-2 w-full">
@@ -2143,6 +2215,24 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
                       Đăng ký lại
                     </Button>
                   </div>
+                ) : c.join_request?.status === "CANCELLED" ? (
+                  <div className="flex flex-col gap-2 w-full">
+                    <div className="text-xs text-slate-600 bg-slate-100 px-3 py-2 rounded-xl border border-slate-200">
+                      Bạn đã rút đơn đăng ký trước đó.
+                    </div>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => {
+                        setApplyingClub(c);
+                        setMessage("");
+                        setFileUrl("");
+                        setFileName("");
+                      }}
+                    >
+                      Đăng ký tham gia lại
+                    </Button>
+                  </div>
                 ) : (
                   <Button
                     variant="default"
@@ -2161,6 +2251,109 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
             </section>
           ))}
         </div>
+
+        {(r.data?.my_requests?.length ?? 0) > 0 && (
+          <section className="panel mt-6">
+            <SectionHeader title="Lịch sử đơn đăng ký gia nhập CLB của bạn">
+              <span className="text-xs text-muted">
+                {r.data.my_requests.length} đơn đã gửi
+              </span>
+            </SectionHeader>
+            <DataTable
+              data={{
+                rows: r.data.my_requests,
+                total: r.data.my_requests.length,
+              }}
+              columns={[
+                {
+                  key: "club_name",
+                  title: "CÂU LẠC BỘ",
+                  render: (req: Row) => (
+                    <div>
+                      <strong className="block">{req.club_name}</strong>
+                      <small className="text-muted">{req.club_code}</small>
+                    </div>
+                  ),
+                },
+                {
+                  key: "created_at",
+                  title: "NGÀY NỘP",
+                  render: (req: Row) => dateText(req.created_at, true),
+                },
+                {
+                  key: "message",
+                  title: "NGUYỆN VỌNG & HỒ SƠ",
+                  render: (req: Row) => (
+                    <div className="space-y-1 max-w-xs">
+                      <p className="text-xs line-clamp-2">
+                        {req.message || "Không có lời nhắn"}
+                      </p>
+                      {req.file_url && (
+                        <a
+                          href={req.file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:underline"
+                        >
+                          <Paperclip size={12} />
+                          <span>{req.file_name || "Tệp đính kèm"}</span>
+                        </a>
+                      )}
+                    </div>
+                  ),
+                },
+                {
+                  key: "status",
+                  title: "TRẠNG THÁI",
+                  render: (req: Row) => <Badge value={req.status} />,
+                },
+                {
+                  key: "review_reason",
+                  title: "PHẢN HỒI XÉT DUYỆT",
+                  render: (req: Row) => (
+                    <div className="text-xs max-w-xs">
+                      {req.review_reason ? (
+                        <>
+                          <span className="block">{req.review_reason}</span>
+                          {req.reviewed_at && (
+                            <small className="text-muted">
+                              {dateText(req.reviewed_at, true)}
+                            </small>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-muted italic">
+                          Đang chờ Ban chủ nhiệm xét duyệt
+                        </span>
+                      )}
+                    </div>
+                  ),
+                },
+                {
+                  key: "actions",
+                  title: "",
+                  render: (req: Row) =>
+                    req.status === "PENDING" ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                        onClick={() =>
+                          setCancellingClub({
+                            club_id: req.club_id,
+                            club_name: req.club_name,
+                            join_request: req,
+                          })
+                        }
+                      >
+                        <X size={14} /> Rút đơn
+                      </Button>
+                    ) : null,
+                },
+              ]}
+            />
+          </section>
+        )}
       </LoadState>
 
       {applyingClub && (
@@ -2295,6 +2488,24 @@ export function ExploreClubs({ onboarding = false }: { onboarding?: boolean }) {
             toast.success(`Bạn đã rời câu lạc bộ ${leavingClub.club_name}.`);
             setLeavingClub(null);
             await reloadSession(0);
+            refresh();
+          }}
+        />
+      )}
+      {cancellingClub && (
+        <Confirm
+          title={`Rút đơn đăng ký vào ${cancellingClub.club_name}?`}
+          description="Đơn xin gia nhập của bạn sẽ được hủy bỏ. Sau khi rút đơn, bạn có thể nộp lại đơn mới bất cứ lúc nào."
+          reason={false}
+          onClose={() => setCancellingClub(null)}
+          onConfirm={async () => {
+            await mutate(
+              `join-requests/${cancellingClub.join_request.request_id}/cancel`,
+              { reason: "Người nộp tự rút đơn đăng ký." },
+              "POST",
+            );
+            toast.success("Đã rút đơn đăng ký tham gia câu lạc bộ.");
+            setCancellingClub(null);
             refresh();
           }}
         />

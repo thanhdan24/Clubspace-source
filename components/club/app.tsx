@@ -915,6 +915,7 @@ export default function ClubApp() {
       ...adminNavigation,
       ...adminSupervision,
       { id: "profile", label: "Hồ sơ cá nhân" },
+      { id: "my-join-requests", label: "Lịch sử đơn gia nhập" },
     ].find((n) => n.id === routePath.split("/")[0])?.label || "Tổng quan";
   const logout = async () => {
     await fetchApi("auth/logout", club, { method: "POST", body: "{}" });
@@ -974,6 +975,7 @@ export default function ClubApp() {
         page = <MyRegistrations />;
         break;
       case "explore-clubs":
+      case "my-join-requests":
         page = <ExploreClubs />;
         break;
       default:
@@ -1151,7 +1153,7 @@ export default function ClubApp() {
               </span>
             </div>
             <div className="topbar-right">
-              {club > 0 && <Notifications />}
+              <Notifications />
               {session.demo && (
                 <span className="preview-badge">Bản trải nghiệm</span>
               )}

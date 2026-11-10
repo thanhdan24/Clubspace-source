@@ -221,7 +221,9 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     const result: any = {
       events: await all(
         c.db,
-        "SELECT event_id,event_name FROM EVENTS WHERE club_id=? AND event_status<>'DRAFT' ORDER BY start_at DESC",
+        isStaff(c)
+          ? "SELECT event_id,event_name,event_status,COALESCE(planned_budget,0) AS planned_budget FROM EVENTS WHERE club_id=? AND event_status<>'CANCELLED' ORDER BY start_at DESC"
+          : "SELECT event_id,event_name,event_status,COALESCE(planned_budget,0) AS planned_budget FROM EVENTS WHERE club_id=? AND event_status<>'DRAFT' ORDER BY start_at DESC",
         [c.club],
       ),
     };
@@ -236,12 +238,18 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
         c.db,
         "SELECT user_id,full_name,student_code,username FROM USERS ORDER BY full_name",
       );
-    if (isStaff(c))
+    if (isStaff(c)) {
       result.categories = await all(
         c.db,
         "SELECT * FROM FINANCE_CATEGORIES WHERE club_id=? ORDER BY category_name",
         [c.club],
       );
+      result.cancelled_transactions = await all(
+        c.db,
+        "SELECT transaction_id, description, amount, transaction_type, transaction_date FROM FINANCIAL_TRANSACTIONS WHERE club_id=? AND transaction_status='CANCELLED' ORDER BY transaction_id DESC",
+        [c.club],
+      );
+    }
     if (c.club) {
       result.departments = await all(
         c.db,
@@ -509,9 +517,12 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
         full_name: str(150),
         student_code: opt(30),
         email: z
-          .union([z.string().email(), z.literal(""), z.null()])
+          .union([z.string().email("Email không hợp lệ."), z.literal(""), z.null()])
           .optional()
           .transform((v) => v || null),
+        phone: opt(20),
+        faculty: opt(150),
+        class_name: opt(100),
         password: z.string().min(10).max(72),
       })
       .parse(await body(req));
@@ -519,12 +530,15 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     const out = await c.db.batch([
       stmt(
         c.db,
-        "INSERT INTO USERS(username,full_name,student_code,email,password_hash,account_status,created_at) VALUES (?,?,?,?,?,?,?)",
+        "INSERT INTO USERS(username,full_name,student_code,email,phone,faculty,class_name,password_hash,account_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
         [
           b.username,
           b.full_name,
           b.student_code,
           b.email,
+          b.phone,
+          b.faculty,
+          b.class_name,
           await bcrypt.hash(password, 12),
           "ACTIVE",
           now(),
@@ -542,11 +556,62 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     fail(before, "Không tìm thấy tài khoản.", 404);
     const b = z
       .object({
+        full_name: str(150).optional(),
+        student_code: z
+          .union([z.string().trim().max(30), z.literal(""), z.null()])
+          .optional()
+          .transform((v) => (v === undefined ? undefined : v || null)),
+        email: z
+          .union([
+            z.string().trim().email("Email không hợp lệ.").max(150),
+            z.literal(""),
+            z.null(),
+          ])
+          .optional()
+          .transform((v) => (v === undefined ? undefined : v || null)),
+        phone: z
+          .union([z.string().trim().max(20), z.literal(""), z.null()])
+          .optional()
+          .transform((v) => (v === undefined ? undefined : v || null)),
+        faculty: z
+          .union([z.string().trim().max(150), z.literal(""), z.null()])
+          .optional()
+          .transform((v) => (v === undefined ? undefined : v || null)),
+        class_name: z
+          .union([z.string().trim().max(100), z.literal(""), z.null()])
+          .optional()
+          .transform((v) => (v === undefined ? undefined : v || null)),
         account_status: z.enum(["ACTIVE", "LOCKED", "INACTIVE"]).optional(),
         password: z.string().min(10).max(72).optional(),
       })
       .parse(await body(req));
-    fail(b.account_status || b.password, "Không có thay đổi.");
+    const hasProfileUpdate =
+      b.full_name !== undefined ||
+      b.student_code !== undefined ||
+      b.email !== undefined ||
+      b.phone !== undefined ||
+      b.faculty !== undefined ||
+      b.class_name !== undefined;
+    fail(
+      b.account_status || b.password || hasProfileUpdate,
+      "Không có thay đổi.",
+    );
+    if (b.student_code) {
+      const dupCode = await one(
+        c.db,
+        "SELECT user_id FROM USERS WHERE student_code=? AND user_id<>?",
+        [b.student_code, id],
+      );
+      fail(!dupCode, "Mã sinh viên đã được sử dụng cho tài khoản khác.", 409);
+    }
+    if (b.email) {
+      const dupEmail = await one(
+        c.db,
+        "SELECT user_id FROM USERS WHERE LOWER(email)=LOWER(?) AND user_id<>?",
+        [b.email, id],
+      );
+      fail(!dupEmail, "Email đã được sử dụng cho tài khoản khác.", 409);
+    }
     fail(
       !(
         id === c.user.user_id &&
@@ -574,25 +639,39 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       }
     }
     const fields: any = { updated_at: now() };
+    if (b.full_name !== undefined) fields.full_name = b.full_name;
+    if (b.student_code !== undefined) fields.student_code = b.student_code;
+    if (b.email !== undefined) fields.email = b.email;
+    if (b.phone !== undefined) fields.phone = b.phone;
+    if (b.faculty !== undefined) fields.faculty = b.faculty;
+    if (b.class_name !== undefined) fields.class_name = b.class_name;
     if (b.account_status) fields.account_status = b.account_status;
     if (b.password) fields.password_hash = await bcrypt.hash(b.password, 12);
     const keys = Object.keys(fields);
-    await c.db.batch([
+    const batchStmts: any[] = [
       stmt(
         c.db,
         `UPDATE USERS SET ${keys.map((k) => k + "=?").join(",")} WHERE user_id=?`,
         [...Object.values(fields), id],
       ),
-      stmt(c.db, "DELETE FROM AUTH_SESSIONS WHERE user_id=?", [id]),
+    ];
+    if (b.password || (b.account_status && b.account_status !== "ACTIVE")) {
+      batchStmts.push(
+        stmt(c.db, "DELETE FROM AUTH_SESSIONS WHERE user_id=?", [id]),
+      );
+    }
+    const { password_hash: _ph, ...auditAfter } = fields;
+    batchStmts.push(
       audit(
         c,
         "UPDATE_ACCOUNT",
         "USERS",
         id,
-        { account_status: before!.account_status },
-        { account_status: b.account_status, password_reset: !!b.password },
+        cleanUser(before!),
+        { ...auditAfter, password_reset: !!b.password },
       ),
-    ]);
+    );
+    await c.db.batch(batchStmts);
     return json({ ok: true });
   }
   if (path === "clubs" && method === "GET") {
@@ -609,7 +688,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     );
     const myRequests = await all(
       c.db,
-      "SELECT club_id, status, request_id, created_at, review_reason, file_url, file_name FROM CLUB_JOIN_REQUESTS WHERE user_id=?",
+      "SELECT jr.club_id, jr.status, jr.request_id, jr.message, jr.created_at, jr.reviewed_at, jr.review_reason, jr.file_url, jr.file_name, c.club_name, c.club_code FROM CLUB_JOIN_REQUESTS jr JOIN CLUBS c ON c.club_id=jr.club_id WHERE jr.user_id=? ORDER BY jr.request_id DESC",
       [c.user.user_id],
     );
     const enriched = clubs.map((club: any) => {
@@ -619,8 +698,8 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       const requests = myRequests.filter(
         (r: any) => r.club_id === club.club_id,
       );
-      const latestReq = requests.sort((a: any, b: any) =>
-        String(b.created_at).localeCompare(String(a.created_at)),
+      const latestReq = requests.sort(
+        (a: any, b: any) => Number(b.request_id) - Number(a.request_id),
       )[0];
       return {
         ...club,
@@ -633,6 +712,9 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
           ? {
               status: latestReq.status,
               request_id: latestReq.request_id,
+              message: latestReq.message,
+              created_at: latestReq.created_at,
+              reviewed_at: latestReq.reviewed_at,
               review_reason: latestReq.review_reason,
               file_url: latestReq.file_url,
               file_name: latestReq.file_name,
@@ -643,6 +725,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
     return json({
       rows: enriched,
       total: enriched.length,
+      my_requests: myRequests,
     });
   }
   const joinMatch = path.match(/^clubs\/(\d+)\/join$/);
@@ -824,6 +907,45 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       ),
     );
   }
+  const cancelJoinMatch = path.match(/^join-requests\/(\d+)\/cancel$/);
+  if (cancelJoinMatch && method === "POST") {
+    const requestId = Number(cancelJoinMatch[1]);
+    const reqRow = await one(
+      c.db,
+      "SELECT * FROM CLUB_JOIN_REQUESTS WHERE request_id=?",
+      [requestId],
+    );
+    fail(reqRow, "Không tìm thấy đơn đăng ký.", 404);
+    fail(
+      reqRow!.user_id === c.user.user_id,
+      "Bạn chỉ có thể rút đơn đăng ký của chính mình.",
+      403,
+    );
+    fail(
+      reqRow!.status === "PENDING",
+      "Chỉ có thể rút đơn đang ở trạng thái chờ xét duyệt.",
+      400,
+    );
+    const b = z
+      .object({
+        reason: z.string().trim().max(500).optional(),
+      })
+      .parse(await body(req).catch(() => ({})));
+    await change(
+      c,
+      "CLUB_JOIN_REQUESTS",
+      "request_id",
+      requestId,
+      {
+        status: "CANCELLED",
+        review_reason: b.reason || "Người nộp tự rút đơn đăng ký.",
+        updated_at: now(),
+      },
+      reqRow!,
+      "CANCEL_JOIN_REQUEST",
+    );
+    return json({ ok: true });
+  }
   const reqMatch = path.match(/^join-requests\/(\d+)$/);
   if (reqMatch && method === "PATCH") {
     permit(c, "OFFICER", "LEADER");
@@ -926,13 +1048,30 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       ).run();
     }
     const pos = b.position_name || "Thành viên";
+    const extraStmts: any[] = [];
     let memberStmt: any;
     if (existingMember) {
       memberStmt = stmt(
         c.db,
-        "UPDATE CLUB_MEMBERS SET member_status='ACTIVE', department_name=?, position_name=?, updated_at=? WHERE club_member_id=?",
+        "UPDATE CLUB_MEMBERS SET member_status='ACTIVE', leave_date=NULL, department_name=?, position_name=?, updated_at=? WHERE club_member_id=?",
         [dept, pos, now(), existingMember.club_member_id],
       );
+      if (existingMember.member_status !== "ACTIVE") {
+        extraStmts.push(
+          stmt(
+            c.db,
+            "INSERT INTO MEMBER_STATUS_HISTORY(club_member_id, old_status, new_status, reason, changed_by, changed_at) VALUES (?,?,?,?,?,?)",
+            [
+              existingMember.club_member_id,
+              existingMember.member_status,
+              "ACTIVE",
+              b.reason || "Tái gia nhập câu lạc bộ qua đơn đăng ký",
+              c.user.user_id,
+              now(),
+            ],
+          ),
+        );
+      }
     } else {
       const finalCode = await getNextMemberCode(c, c.club);
       memberStmt = stmt(
@@ -949,6 +1088,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       ),
       grantRoleStmt,
       memberStmt,
+      ...extraStmts,
       audit(
         c,
         "APPROVE_JOIN_REQUEST",
@@ -968,7 +1108,7 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       title: "Đơn gia nhập đã được phê duyệt!",
       content: `Chúc mừng bạn! Ban chủ nhiệm đã phê duyệt đơn gia nhập CLB của bạn vào phòng ban "${dept}".`,
       type: "JOIN_REQUEST",
-      linkUrl: "members",
+      linkUrl: "dashboard",
     });
     return json({ ok: true });
   }
@@ -996,6 +1136,14 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       "Cần chọn tài khoản chủ nhiệm đang hoạt động.",
     );
     const { leader_user_id, ...fields } = b;
+    const prefix = (
+      b.member_code_prefix ||
+      b.club_code.replace(/^CLB[-_]?/i, "") ||
+      "MB"
+    )
+      .trim()
+      .toUpperCase();
+    const initialMemberCode = `${prefix}001`;
     const keys = Object.keys(fields);
     await c.db.batch([
       stmt(
@@ -1005,8 +1153,23 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       ),
       stmt(
         c.db,
-        "INSERT INTO USER_ROLES(user_id,role_id,club_id,assigned_by,assigned_at,active_flag) SELECT ?,r.role_id,c.club_id,?,?,1 FROM ROLES r CROSS JOIN CLUBS c WHERE r.role_code='LEADER' AND c.club_code=?",
+        "INSERT INTO USER_ROLES(user_id,role_id,club_id,assigned_by,assigned_at,active_flag) SELECT ?,r.role_id,c.club_id,?,?,1 FROM ROLES r CROSS JOIN CLUBS c WHERE r.role_code IN ('LEADER','MEMBER') AND c.club_code=?",
         [leader_user_id, c.user.user_id, now(), b.club_code],
+      ),
+      stmt(
+        c.db,
+        "INSERT INTO CLUB_DEPARTMENTS(club_id,department_name,description,active_flag,created_at) SELECT c.club_id,'Ban chủ nhiệm','Ban điều hành chung và đại diện câu lạc bộ',1,? FROM CLUBS c WHERE c.club_code=?",
+        [now(), b.club_code],
+      ),
+      stmt(
+        c.db,
+        "INSERT INTO CLUB_DEPARTMENTS(club_id,department_name,description,active_flag,created_at) SELECT c.club_id,'Ban Thành viên','Quản lý hồ sơ và tuyển thành viên câu lạc bộ',1,? FROM CLUBS c WHERE c.club_code=?",
+        [now(), b.club_code],
+      ),
+      stmt(
+        c.db,
+        "INSERT INTO CLUB_MEMBERS(club_id,user_id,member_code,join_date,member_status,department_name,position_name,created_at) SELECT c.club_id,?,?,?,'ACTIVE','Ban chủ nhiệm','Chủ nhiệm',? FROM CLUBS c WHERE c.club_code=?",
+        [leader_user_id, initialMemberCode, day(), now(), b.club_code],
       ),
       audit(c, "CREATE_CLUB", "CLUBS", b.club_code, null, fields),
     ]);
@@ -1063,8 +1226,8 @@ export async function peopleRoute(c: Context, path: string, req: Request) {
       .parse(await body(req));
     if (!c.admin)
       fail(
-        ["OFFICER", "TREASURER"].includes(b.role_code),
-        "Chủ nhiệm chỉ được phân công cán bộ và thủ quỹ.",
+        ["LEADER", "OFFICER", "TREASURER", "MEMBER"].includes(b.role_code),
+        "Chủ nhiệm không được phép cấp quyền Quản trị hệ thống.",
         403,
       );
     const club = b.role_code === "ADMIN" ? null : c.club;

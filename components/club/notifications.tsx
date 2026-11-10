@@ -56,7 +56,7 @@ function getNotificationIcon(type: string) {
 }
 
 export default function Notifications() {
-  const { club, navigate, version } = useApp();
+  const { club, navigate, version, session, switchClub } = useApp();
   const [data, setData] = useState<{ rows: any[]; unread_count: number }>({
     rows: [],
     unread_count: 0,
@@ -150,7 +150,18 @@ export default function Notifications() {
 
     if (item.link_url) {
       setOpen(false);
-      navigate(item.link_url);
+      if (
+        item.club_id &&
+        item.club_id !== club &&
+        item.link_url !== "my-join-requests" &&
+        item.link_url !== "explore-clubs" &&
+        ((item.type === "JOIN_REQUEST" && item.link_url === "dashboard") ||
+          session?.clubs?.some((c: any) => c.club_id === item.club_id))
+      ) {
+        await switchClub(item.club_id, item.link_url);
+      } else {
+        navigate(item.link_url);
+      }
     }
   };
 

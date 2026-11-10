@@ -40,6 +40,16 @@ function eventStatisticsSql(where: string) {
         SUM(CASE WHEN attendance_status='EXCUSED' THEN 1 ELSE 0 END) AS excused_count
       FROM ATTENDANCE
       GROUP BY event_id
+    ),
+    FinAgg AS (
+      SELECT
+        event_id,
+        SUM(CASE WHEN transaction_type='EXPENSE' AND transaction_status='POSTED' THEN amount ELSE 0 END) AS actual_expense,
+        SUM(CASE WHEN transaction_type='EXPENSE' AND transaction_status IN ('PENDING_APPROVAL','APPROVED') THEN amount ELSE 0 END) AS pending_expense,
+        SUM(CASE WHEN transaction_type='INCOME' AND transaction_status='POSTED' THEN amount ELSE 0 END) AS actual_income
+      FROM FINANCIAL_TRANSACTIONS
+      WHERE event_id IS NOT NULL
+      GROUP BY event_id
     )
     SELECT
       e.event_id,
@@ -53,6 +63,22 @@ function eventStatisticsSql(where: string) {
       e.approval_required,
       e.event_status,
       e.capacity,
+      COALESCE(e.planned_budget,0) AS planned_budget,
+      COALESCE(f.actual_expense,0) AS actual_expense,
+      COALESCE(f.pending_expense,0) AS pending_expense,
+      COALESCE(f.actual_income,0) AS actual_income,
+      COALESCE(e.planned_budget,0) - COALESCE(f.actual_expense,0) AS budget_variance,
+      CASE
+        WHEN COALESCE(f.actual_expense,0) > COALESCE(e.planned_budget,0)
+          THEN COALESCE(f.actual_expense,0) - COALESCE(e.planned_budget,0)
+        ELSE 0
+      END AS deficit_amount,
+      CASE
+        WHEN COALESCE(e.planned_budget,0)=0 AND COALESCE(f.actual_expense,0)=0 AND COALESCE(f.pending_expense,0)=0 THEN 'NO_BUDGET'
+        WHEN COALESCE(f.actual_expense,0) > COALESCE(e.planned_budget,0) THEN 'OVER_BUDGET'
+        WHEN (COALESCE(f.actual_expense,0) + COALESCE(f.pending_expense,0)) > COALESCE(e.planned_budget,0) THEN 'PROJECTED_OVER_BUDGET'
+        ELSE 'WITHIN_BUDGET'
+      END AS budget_status,
       COALESCE(r.total_registrations,0) AS total_registrations,
       COALESCE(r.pending_count,0) AS pending_count,
       COALESCE(r.confirmed_count,0) AS confirmed_count,
@@ -69,6 +95,7 @@ function eventStatisticsSql(where: string) {
     FROM EVENTS e
     LEFT JOIN RegAgg r ON r.event_id=e.event_id
     LEFT JOIN AttAgg a ON a.event_id=e.event_id
+    LEFT JOIN FinAgg f ON f.event_id=e.event_id
     WHERE ${where}
   `;
 }
@@ -344,6 +371,26 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
   let monthly: any[] = [];
   let pending: any[] = [];
   let awaiting_post: any[] = [];
+  let pending_join_requests: any[] = [];
+
+  if (operations) {
+    pending_join_requests = await all(
+      c.db,
+      `SELECT
+         jr.request_id,
+         jr.created_at,
+         jr.message,
+         jr.file_name,
+         u.full_name,
+         u.student_code
+       FROM CLUB_JOIN_REQUESTS jr
+       JOIN USERS u ON u.user_id=jr.user_id
+       WHERE jr.club_id=?
+         AND jr.status='PENDING'
+       ORDER BY jr.created_at DESC, jr.request_id DESC`,
+      [c.club],
+    );
+  }
 
   if (finance) {
     fund = await one(
@@ -484,6 +531,10 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
         event_name: "Sự kiện",
         start_at: "Bắt đầu",
         event_status: "Trạng thái",
+        planned_budget: "Ngân sách kế hoạch",
+        actual_expense: "Thực chi",
+        actual_income: "Thu sự kiện",
+        deficit_amount: "Thâm hụt / Vượt dự toán",
         total_registrations: "Đăng ký",
         confirmed_count: "Xác nhận",
         attended_count: "Tham dự",
@@ -504,6 +555,10 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
     0,
   );
 
+  const draft_events = operations
+    ? events.filter((e) => e.event_status === "DRAFT")
+    : [];
+
   return json({
     counts: counts || {
       total: 0,
@@ -516,6 +571,8 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
     monthly,
     pending,
     awaiting_post,
+    pending_join_requests,
+    draft_events,
     finance_tasks: {
       pending_count: pending.length,
       pending_amount: pending.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
@@ -529,6 +586,8 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
     stats: {
       events: events.length,
       open: events.filter((e) => e.event_status === "OPEN").length,
+      draft_events: draft_events.length,
+      pending_join_requests: pending_join_requests.length,
       registrations: events.reduce(
         (total, event) => total + Number(event.total_registrations || 0),
         0,
@@ -538,6 +597,21 @@ export async function reportsRoute(c: Context, path: string, req: Request) {
         0,
       ),
       attendance: confirmed ? Math.round((attended / confirmed) * 100) : 0,
+      total_planned_budget: events.reduce(
+        (total, event) => total + Number(event.planned_budget || 0),
+        0,
+      ),
+      total_event_expense: events.reduce(
+        (total, event) => total + Number(event.actual_expense || 0),
+        0,
+      ),
+      total_event_deficit: events.reduce(
+        (total, event) => total + Number(event.deficit_amount || 0),
+        0,
+      ),
+      over_budget_events: events.filter(
+        (e) => Number(e.actual_expense || 0) > Number(e.planned_budget || 0),
+      ).length,
     },
     as_of: now(),
   });

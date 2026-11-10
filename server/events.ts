@@ -40,6 +40,20 @@ const eventForm = z.object({
   capacity: z
     .union([idSchema, z.null(), z.literal("")])
     .transform((v) => (v === "" ? null : v)),
+  planned_budget: z
+    .union([
+      z.coerce
+        .number()
+        .min(0, "Ngân sách kế hoạch không được âm.")
+        .max(9999999999999.99)
+        .refine(
+          (v) => Math.abs(v * 100 - Math.round(v * 100)) < 0.01,
+          "Ngân sách có tối đa hai chữ số thập phân.",
+        ),
+      z.null(),
+      z.literal(""),
+    ])
+    .optional(),
   approval_required: z.coerce.number().int().min(0).max(1),
 });
 async function checkEvent(c: Context, event: any) {
@@ -130,7 +144,34 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
     );
 
     let sql =
-      "SELECT e.*, c_info.club_name, s.confirmed_count, s.pending_count, s.attended_count, s.attendance_rate_percent FROM EVENTS e JOIN CLUBS c_info ON c_info.club_id=e.club_id JOIN vw_event_statistics s ON s.event_id=e.event_id WHERE " +
+      `SELECT e.*, c_info.club_name, s.confirmed_count, s.pending_count, s.attended_count, s.attendance_rate_percent,
+        COALESCE(e.planned_budget, 0) AS planned_budget,
+        COALESCE(fin.actual_expense, 0) AS actual_expense,
+        COALESCE(fin.pending_expense, 0) AS pending_expense,
+        COALESCE(fin.actual_income, 0) AS actual_income,
+        CASE WHEN COALESCE(fin.actual_expense, 0) > COALESCE(e.planned_budget, 0)
+          THEN COALESCE(fin.actual_expense, 0) - COALESCE(e.planned_budget, 0)
+          ELSE 0
+        END AS deficit_amount,
+        CASE
+          WHEN COALESCE(fin.actual_expense, 0) > COALESCE(e.planned_budget, 0) THEN 'OVER_BUDGET'
+          WHEN (COALESCE(fin.actual_expense, 0) + COALESCE(fin.pending_expense, 0)) > COALESCE(e.planned_budget, 0) THEN 'PROJECTED_OVER_BUDGET'
+          ELSE 'WITHIN_BUDGET'
+        END AS budget_status
+      FROM EVENTS e
+      JOIN CLUBS c_info ON c_info.club_id=e.club_id
+      JOIN vw_event_statistics s ON s.event_id=e.event_id
+      LEFT JOIN (
+        SELECT
+          event_id,
+          SUM(CASE WHEN transaction_type='EXPENSE' AND transaction_status='POSTED' THEN amount ELSE 0 END) AS actual_expense,
+          SUM(CASE WHEN transaction_type='EXPENSE' AND transaction_status IN ('PENDING_APPROVAL','APPROVED') THEN amount ELSE 0 END) AS pending_expense,
+          SUM(CASE WHEN transaction_type='INCOME' AND transaction_status='POSTED' THEN amount ELSE 0 END) AS actual_income
+        FROM FINANCIAL_TRANSACTIONS
+        WHERE event_id IS NOT NULL
+        GROUP BY event_id
+      ) fin ON fin.event_id=e.event_id
+      WHERE ` +
       baseWhere;
     const p: any[] = [...pBase];
     sql += " AND e.event_name LIKE ?";
@@ -170,12 +211,17 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
   if (path === "events" && method === "POST") {
     permit(c, "OFFICER", "LEADER");
     const b = eventForm.parse(await body(req));
+    const planned_budget =
+      b.planned_budget === "" || b.planned_budget === null || b.planned_budget === undefined
+        ? 0
+        : Math.round(Number(b.planned_budget) * 100) / 100;
     await checkEvent(c, b);
     const id = await insert(
       c,
       "EVENTS",
       {
         ...b,
+        planned_budget,
         club_id: c.club,
         created_by: c.user.user_id,
         event_status: "DRAFT",
@@ -184,6 +230,12 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
       },
       "CREATE_EVENT",
     );
+    await notifyClubRoles(c.db, c.club, ["LEADER"], {
+      title: `Sự kiện chờ duyệt: ${b.event_name}`,
+      content: `${c.user.full_name} đã tạo bản nháp sự kiện "${b.event_name}" (Ngân sách dự kiến: ${planned_budget.toLocaleString("vi-VN")} đ) đang chờ Chủ nhiệm phê duyệt & công bố.`,
+      type: "EVENT",
+      linkUrl: `events/${id}`,
+    });
     return json({ event_id: id }, 201);
   }
   if (path === "my-registrations" && method === "GET") {
@@ -233,6 +285,70 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
       "SELECT * FROM CLUB_MEMBERS WHERE club_id=? AND user_id=?",
       [event.club_id, c.user.user_id],
     );
+    const finSummary = await one(
+      c.db,
+      `SELECT
+        COALESCE(SUM(CASE WHEN transaction_type='EXPENSE' AND transaction_status='POSTED' THEN amount ELSE 0 END), 0) AS actual_expense,
+        COALESCE(SUM(CASE WHEN transaction_type='EXPENSE' AND transaction_status IN ('PENDING_APPROVAL','APPROVED') THEN amount ELSE 0 END), 0) AS pending_expense,
+        COALESCE(SUM(CASE WHEN transaction_type='EXPENSE' AND transaction_status='DRAFT' THEN amount ELSE 0 END), 0) AS draft_expense,
+        COALESCE(SUM(CASE WHEN transaction_type='INCOME' AND transaction_status='POSTED' THEN amount ELSE 0 END), 0) AS actual_income
+      FROM FINANCIAL_TRANSACTIONS
+      WHERE event_id=?`,
+      [event.event_id],
+    );
+    const clubFund = await one(
+      c.db,
+      `SELECT
+        COALESCE(SUM(CASE WHEN transaction_type='INCOME' THEN amount ELSE -amount END), 0) AS balance
+      FROM FINANCIAL_TRANSACTIONS
+      WHERE club_id=? AND transaction_status='POSTED'`,
+      [event.club_id],
+    );
+    const planned = Number(event.planned_budget || 0);
+    const actualExpense = Number(finSummary?.actual_expense || 0);
+    const pendingExpense = Number(finSummary?.pending_expense || 0);
+    const draftExpense = Number(finSummary?.draft_expense || 0);
+    const actualIncome = Number(finSummary?.actual_income || 0);
+    const totalCommittedExpense = actualExpense + pendingExpense;
+    const clubBalance = Number(clubFund?.balance || 0);
+    const variance = planned - actualExpense;
+    const deficitAmount = Math.max(0, actualExpense - planned);
+    const projectedDeficitAmount = Math.max(0, totalCommittedExpense - planned);
+    const utilizationPercent =
+      planned > 0
+        ? Math.round((actualExpense / planned) * 1000) / 10
+        : actualExpense > 0
+          ? 100
+          : 0;
+    const projectedUtilizationPercent =
+      planned > 0
+        ? Math.round((totalCommittedExpense / planned) * 1000) / 10
+        : totalCommittedExpense > 0
+          ? 100
+          : 0;
+    const budgetStatus =
+      actualExpense > planned
+        ? "OVER_BUDGET"
+        : totalCommittedExpense > planned
+          ? "PROJECTED_OVER_BUDGET"
+          : "WITHIN_BUDGET";
+
+    const canViewEventFinance =
+      c.admin || (event.club_id === c.club && isStaff(c));
+    const transactions = canViewEventFinance
+      ? await all(
+          c.db,
+          `SELECT t.*, cat.category_name, u.full_name AS creator_name, ap.full_name AS approver_name
+           FROM FINANCIAL_TRANSACTIONS t
+           JOIN FINANCE_CATEGORIES cat ON cat.category_id=t.category_id
+           JOIN USERS u ON u.user_id=t.created_by
+           LEFT JOIN USERS ap ON ap.user_id=t.approved_by
+           WHERE t.event_id=?
+           ORDER BY t.transaction_date DESC, t.transaction_id DESC`,
+          [event.event_id],
+        )
+      : [];
+
     return json({
       event,
       stats: await one(
@@ -240,6 +356,25 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
         "SELECT * FROM vw_event_statistics WHERE event_id=?",
         [event.event_id],
       ),
+      budget: {
+        planned_budget: planned,
+        actual_expense: actualExpense,
+        pending_expense: pendingExpense,
+        draft_expense: draftExpense,
+        total_committed_expense: totalCommittedExpense,
+        actual_income: actualIncome,
+        club_balance: clubBalance,
+        budget_variance: variance,
+        deficit_amount: deficitAmount,
+        projected_deficit_amount: projectedDeficitAmount,
+        utilization_percent: utilizationPercent,
+        projected_utilization_percent: projectedUtilizationPercent,
+        budget_status: budgetStatus,
+        is_over_budget: actualExpense > planned,
+        is_projected_over_budget: totalCommittedExpense > planned,
+        exceeds_club_fund: planned > clubBalance,
+      },
+      transactions,
       mine: me
         ? await one(
             c.db,
@@ -261,14 +396,21 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
       !["COMPLETED", "CANCELLED"].includes(event.event_status),
       "Không thể sửa sự kiện đã hoàn tất hoặc hủy.",
     );
-    const b = eventForm.parse(await body(req));
+    const raw = await body(req);
+    const b = eventForm.parse(raw);
+    const planned_budget =
+      raw.planned_budget === undefined
+        ? Number(event.planned_budget || 0)
+        : b.planned_budget === "" || b.planned_budget === null || b.planned_budget === undefined
+          ? 0
+          : Math.round(Number(b.planned_budget) * 100) / 100;
     await checkEvent(c, { ...b, event_id: event.event_id });
     await change(
       c,
       "EVENTS",
       "event_id",
       event.event_id,
-      { ...b, updated_at: now() },
+      { ...b, planned_budget, updated_at: now() },
       event,
       "UPDATE_EVENT",
     );
@@ -673,7 +815,28 @@ export async function eventsRoute(c: Context, path: string, req: Request) {
       "SELECT * FROM EVENT_REGISTRATIONS WHERE event_id=? AND club_member_id=?",
       [event.event_id, b.club_member_id],
     );
-    fail(!old, "Thành viên đã có đăng ký; hãy xử lý bản ghi hiện có.");
+    if (old) {
+      fail(
+        ["CANCELLED", "REJECTED"].includes(old.registration_status),
+        "Thành viên đã có đăng ký; hãy xử lý bản ghi hiện có.",
+      );
+      await change(
+        c,
+        "EVENT_REGISTRATIONS",
+        "registration_id",
+        old.registration_id,
+        {
+          registration_status: "CONFIRMED",
+          reviewed_by: c.user.user_id,
+          reviewed_at: now(),
+          cancelled_at: null,
+        },
+        old,
+        "ADD_PARTICIPANT",
+        [audit(c, "ADD_PARTICIPANT_REASON", "EVENTS", event.event_id, null, b)],
+      );
+      return json({ ok: true }, 201);
+    }
     await insert(
       c,
       "EVENT_REGISTRATIONS",
